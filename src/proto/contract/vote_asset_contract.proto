@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package protocol;
+
+message VoteAssetContract {
+  bytes owner_address = 1;
+  repeated bytes vote_address = 2;
+  bool support = 3;
+  int32 count = 5;
+}

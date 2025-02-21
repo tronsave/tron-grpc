@@ -1,0 +1,31 @@
+{
+  "name": "tron-grpc",
+  "version": "0.0.1",
+  "description": "A TypeScript client for interacting with the TRON blockchain via gRPC",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc --project tsconfig.json && npm run minify",
+    "minify": "find dist -name '*.js' -exec terser {} -c -m -o {} \\;",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/google-protobuf": "^3.15.12",
+    "@types/node": "^22.13.4",
+    "google-protobuf": "^3.21.4",
+    "terser": "^5.39.0",
+    "tslib": "^2.8.1",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.12.6",
+    "@noble/hashes": "^1.7.1",
+    "@scure/base": "^1.2.4"
+  }
+}

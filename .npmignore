@@ -1,0 +1,31 @@
+# Source
+src/
+README.md
+
+# Config files
+tsconfig.json
+.prettierrc
+.eslintrc
+.editorconfig
+
+# Tests
+test/
+coverage/
+*.test.ts
+*.spec.ts
+
+# Git and GitHub
+.git/
+.github/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Misc
+.DS_Store
