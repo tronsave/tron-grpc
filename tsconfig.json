@@ -1,0 +1,44 @@
+{
+    "compilerOptions": {
+        /* Build Optimization */
+        "target": "ES2020",
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "importHelpers": true, /* Import emit helpers from 'tslib' */
+        "removeComments": true, /* Remove all comments except copy-right header comments */
+        "noEmitHelpers": true, /* Use imported helpers from tslib */
+        "skipLibCheck": true, /* Skip type checking of declaration files */
+        /* Output Configuration */
+        "outDir": "./dist",
+        "declaration": true, /* Generate .d.ts files */
+        "declarationMap": false, /* Don't generate sourcemaps for declarations */
+        "sourceMap": false, /* Changed to true to help with debugging minified code */
+        /* Type Checking */
+        "strict": true,
+        "noImplicitAny": true,
+        "noUnusedLocals": false, /* Report errors on unused locals */
+        "noUnusedParameters": false, /* Report errors on unused parameters */
+        "noImplicitReturns": true, /* Report error when not all code paths return */
+        /* Code Optimization */
+        "alwaysStrict": true,
+        "preserveConstEnums": true, /* Changed to true for better minification */
+        "newLine": "lf", /* Use LF for line endings */
+        /* Module Resolution */
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        /* Advanced */
+        "experimentalDecorators": true,
+        "forceConsistentCasingInFileNames": true,
+    },
+    "include": [
+        "src/*",
+        "src/**/*.ts",
+        "index.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "**/*.test.ts",
+        "**/*.spec.ts",
+        "dist"
+    ]
+}
