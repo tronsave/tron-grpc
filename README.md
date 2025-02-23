@@ -41,13 +41,13 @@ For recent history, see the [CHANGELOG](https://github.com/tronsave/tron-grpc/bl
 ### Node.js
 
 ```bash
-npm install tron-grpc
+npm install --save tron-grpc google-protobuf tslib
 ```
 
 or
 
 ```bash
-yarn add tron-grpc
+yarn add tron-grpc google-protobuf tslib
 ```
 
 ## Creating an Instance
@@ -55,7 +55,9 @@ yarn add tron-grpc
 Default Tron GRPC Client using mainnet Trongrid: grpc.trongrid.io:50051
 
 ```js
+import { TronGrpcClient } from 'tron-grpc';
 const tronclient = new TronGrpcClient()
+const account = await tronclient.getAccount('TRxxxxxxxxxxx');
 ```
 
 If you using Nile testnet
@@ -85,8 +87,8 @@ const tronclient = new TronGrpcClient('grpc.nile.trongrid.io:50051')
 - [ ] getTransaction - Get transaction by ID
 - [ ] getTransactionInfo - Get transaction info by ID
 - [ ] getTransactionById - Get transaction details by ID
-- [ ] getTransactionInfoByBlockNum - Get all transaction info in a block
-- [ ] getTransactionCountByBlockNum - Get transaction count in a block
+- [x] getTransactionInfoByBlockNum - Get all transaction info in a block
+- [x] getTransactionCountByBlockNum - Get transaction count in a block
 - [ ] broadcastTransaction - Broadcast signed transaction
 - [ ] getTransactionSignWeight - Get transaction sign weight
 - [ ] getTransactionApprovedList - Get transaction approved list
@@ -95,13 +97,13 @@ const tronclient = new TronGrpcClient('grpc.nile.trongrid.io:50051')
 
 ### Block Methods
 
-- [ ] getNowBlock - Get current block
-- [ ] getBlockByNum - Get block by number
+- [x] getNowBlock - Get current block
+- [x] getBlockByNum - Get block by number
 - [ ] getBlockById - Get block by ID
-- [ ] getBlockByLimitNext - Get blocks between start and end
-- [ ] getBlockByLatestNum - Get latest N blocks
-- [ ] getBlock - Get block by number with details option
-- [ ] getBlockBalanceTrace - Get block balance changes
+- [x] getBlockByLimitNext - Get blocks between start and end
+- [x] getBlockByLatestNum - Get latest N blocks
+- [x] getBlock - Get block by number with details option
+- [x] getBlockBalanceTrace - Get block balance changes
 - [ ] getBlockIndex - Get block index by block hash
 - [ ] getBlockByHash - Get block by block hash
 - [ ] getBlockHeader - Get block header
@@ -153,7 +155,7 @@ const tronclient = new TronGrpcClient('grpc.nile.trongrid.io:50051')
 - [ ] createWitness - Apply for Super Representative
 - [ ] updateWitness - Update SR URL
 - [ ] voteWitness - Vote for SR
-- [ ] getListWitnesses - Get all SR list
+- [x] getListWitnesses - Get all SR list
 - [ ] updateBrokerage - Update SR brokerage
 - [ ] getBrokerageInfo - Get SR brokerage info
 - [ ] getRewardInfo - Get SR rewards
@@ -163,15 +165,15 @@ const tronclient = new TronGrpcClient('grpc.nile.trongrid.io:50051')
 
 ### Network Methods
 
-- [ ] listNodes - List all nodes
-- [ ] getNodeInfo - Get node information
-- [ ] getBandwidthPrices - Get bandwidth prices
-- [ ] getEnergyPrices - Get energy prices
-- [ ] getMemoFee - Get memo fee
-- [ ] getBurnTrx - Get burned TRX amount
-- [ ] getChainParameters - Get chain parameters
-- [ ] totalTransaction - Get total transaction count
-- [ ] getNextMaintenanceTime - Get next maintenance time
+- [x] listNodes - List all nodes
+- [x] getNodeInfo - Get node information
+- [x] getBandwidthPrices - Get bandwidth prices
+- [x] getEnergyPrices - Get energy prices
+- [x] getMemoFee - Get memo fee
+- [x] getBurnTrx - Get burned TRX amount
+- [x] getChainParameters - Get chain parameters
+- [x] totalTransaction - Get total transaction count
+- [x] getNextMaintenanceTime - Get next maintenance time
 - [ ] getConnectedNodes - Get connected node list
 - [ ] getBlockProduction - Get block production stats
 - [ ] getNodeMetrics - Get node performance metrics
@@ -179,7 +181,7 @@ const tronclient = new TronGrpcClient('grpc.nile.trongrid.io:50051')
 
 ### Proposal Methods
 
-- [ ] getProposalList - Get all proposals
+- [x] getProposalList - Get all proposals
 - [ ] getPaginatedProposalList - Get paginated proposals
 - [ ] getProposalById - Get proposal by ID
 - [ ] createProposal - Create new network proposal
