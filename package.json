@@ -1,6 +1,6 @@
 {
   "name": "tron-grpc",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "A TypeScript client for interacting with the TRON blockchain via gRPC",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
