@@ -70,79 +70,70 @@ const tronclient = new TronGrpcClient('grpc.nile.trongrid.io:50051')
 
 ### Account Methods
 
-- [x] getAccount - Get account information
-- [x] getAccountBalance - Get account balance at a specific block
-- [x] getAccountNet - Get account bandwidth information
-- [x] getAccountResource - Get account resource information
-- [ ] createAccount - Create a new account
-- [ ] updateAccount - Update account name
-- [ ] accountPermissionUpdate - Update account permissions
+- [X] getAccount - Get account information
+- [X] getAccountBalance - Get account balance at a specific block
+- [X] getAccountNet - Get account bandwidth information
+- [X] getAccountResource - Get account resource information
+- [X] createAccount - Create a new account
+- [X] updateAccount - Update account name
+- [X] accountPermissionUpdate - Update account permissions
 - [ ] getAccountById - Get account by ID
-- [ ] getAccountAssets - Get all assets owned by account
-- [ ] getAccountNotExists - Check if account doesn't exist
 
 ### Transaction Methods
 
-- [ ] createTransaction - Create a TRX transfer transaction
-- [x] getTransaction - Get transaction by ID
-- [x] getTransactionInfo - Get transaction info by ID
-- [x] getTransactionById - Get transaction details by ID
-- [x] getTransactionInfoByBlockNum - Get all transaction info in a block
-- [x] getTransactionCountByBlockNum - Get transaction count in a block
-- [ ] broadcastTransaction - Broadcast signed transaction
-- [ ] getTransactionSignWeight - Get transaction sign weight
-- [ ] getTransactionApprovedList - Get transaction approved list
+- [X] createTransaction - Create a TRX transfer transaction
+- [X] getTransaction - Get transaction by ID
+- [X] getTransactionInfo - Get transaction info by ID
+- [X] getTransactionById - Get transaction details by ID
+- [X] getTransactionInfoByBlockNum - Get all transaction info in a block
+- [X] getTransactionCountByBlockNum - Get transaction count in a block
+- [X] broadcastTransaction - Broadcast signed transaction
+- [X] getTransactionSignWeight - Get transaction sign weight
+- [X] getTransactionApprovedList - Get transaction approved list
 - [ ] getTransactionFromPending - Get transaction from pending pool
 - [ ] getTransactionListFromPending - Get all transactions from pending pool
 
 ### Block Methods
 
-- [x] getNowBlock - Get current block
-- [x] getBlockByNum - Get block by number
-- [x] getBlockById - Get block by ID
-- [x] getBlockByLimitNext - Get blocks between start and end
-- [x] getBlockByLatestNum - Get latest N blocks
-- [x] getBlock - Get block by number with details option
-- [x] getBlockBalanceTrace - Get block balance changes
-- [ ] getBlockIndex - Get block index by block hash
-- [ ] getBlockByHash - Get block by block hash
-- [ ] getBlockHeader - Get block header
+- [X] getNowBlock - Get current block
+- [X] getBlockByNum - Get block by number
+- [X] getBlockById - Get block by ID
+- [X] getBlockByLimitNext - Get blocks between start and end
+- [X] getBlockByLatestNum - Get latest N blocks
+- [X] getBlock - Get block by number with details option
+- [X] getBlockBalanceTrace - Get block balance changes
 
 ### Smart Contract Methods
 
-- [x] getContract - Get contract code
-- [x] getContractInfo - Get contract information
-- [ ] triggerContract - Trigger smart contract
-- [ ] triggerConstantContract - Trigger constant contract (view/pure)
-- [ ] estimateEnergy - Estimate energy cost for contract call
-- [x] updateSetting - Update contract consume_user_resource_percent
-- [x] updateEnergyLimit - Update contract origin_energy_limit
-- [ ] clearContractABI - Clear contract ABI
-- [ ] deployContract - Deploy new smart contract
-- [ ] getContractEvents - Get contract events
-- [ ] getContractStats - Get contract statistics
-- [ ] updateContractParams - Update contract parameters
+- [X] getContract - Get contract code
+- [X] getContractInfo - Get contract information
+- [X] triggerContract - Trigger smart contract
+- [X] triggerConstantContract - Trigger constant contract (view/pure)
+- [X] estimateEnergy - Estimate energy cost for contract call
+- [X] updateSetting - Update contract consume_user_resource_percent
+- [X] updateEnergyLimit - Update contract origin_energy_limit
+- [X] clearContractABI - Clear contract ABI
+- [X] deployContract - Deploy new smart contract
 
 ### Resource Methods
 
-- [ ] freezeBalanceV2 - Freeze TRX for resources (V2)
-- [ ] unfreezeBalance - Unfreeze TRX (legacy)
-- [ ] unfreezeBalanceV2 - Unfreeze TRX (V2)
-- [x] withdrawExpireUnfreeze - Withdraw expired unfrozen TRX
-- [x] getDelegatedResourceV2 - Get resource delegation info
-- [ ] delegateResource - Delegate resources to another account
-- [ ] unDelegateResource - Undelegate resources
-- [x] cancelAllUnfreezeV2 - Cancel all unfreezing transactions
+- [X] freezeBalanceV2 - Freeze TRX for resources (V2)
+- [X] unfreezeBalance - Unfreeze TRX (legacy)
+- [X] unfreezeBalanceV2 - Unfreeze TRX (V2)
+- [X] withdrawExpireUnfreeze - Withdraw expired unfrozen TRX
+- [X] getDelegatedResourceV2 - Get resource delegation info
+- [X] delegateResource - Delegate resources to another account
+- [X] unDelegateResource - Undelegate resources
+- [X] cancelAllUnfreezeV2 - Cancel all unfreezing transactions
 - [ ] getResourceUsage - Get account resource usage details
-- [x] getDelegatedResourceAccountIndex - Get delegated resource index
-- [x] getDelegatedResourceAccountIndexV2 - Get delegated resource index V2
-- [ ] getResourcePrices - Get current resource prices
+- [X] getDelegatedResourceAccountIndex - Get delegated resource index
+- [X] getDelegatedResourceAccountIndexV2 - Get delegated resource index V2
 
 ### Asset Methods
 
-- [ ] transferAsset - Transfer TRC10 tokens
-- [ ] updateAsset - Update TRC10 token parameters
-- [x] getAssetIssueByAccount - Get account's TRC10 tokens
+- [X] transferAsset - Transfer TRC10 tokens
+- [X] updateAsset - Update TRC10 token parameters
+- [X] getAssetIssueByAccount - Get account's TRC10 tokens
 - [ ] createAssetIssue - Create new TRC10 token
 - [ ] participateAssetIssue - Participate in TRC10 token sale
 - [ ] getAssetIssueByName - Get TRC10 token by name
@@ -153,28 +144,26 @@ const tronclient = new TronGrpcClient('grpc.nile.trongrid.io:50051')
 
 ### Witness (Super Representative) Methods
 
-- [ ] createWitness - Apply for Super Representative
-- [ ] updateWitness - Update SR URL
-- [x] voteWitness - Vote for SR
-- [x] getListWitnesses - Get all SR list
-- [x] updateBrokerage - Update SR brokerage
-- [x] getBrokerageInfo - Get SR brokerage info
-- [x] getRewardInfo - Get SR rewards
+- [X] createWitness - Apply for Super Representative
+- [X] updateWitness - Update SR URL
+- [X] voteWitness - Vote for SR
+- [X] getListWitnesses - Get all SR list
+- [X] updateBrokerage - Update SR brokerage
+- [X] getBrokerageInfo - Get SR brokerage info
+- [X] getRewardInfo - Get SR rewards
 - [ ] withdrawBalance - Withdraw SR rewards
-- [ ] getWitnessPermission - Get SR permissions
-- [ ] getWitnessesByVoteCount - Get SRs sorted by votes
 
 ### Network Methods
 
-- [x] listNodes - List all nodes
-- [x] getNodeInfo - Get node information
-- [x] getBandwidthPrices - Get bandwidth prices
-- [x] getEnergyPrices - Get energy prices
-- [x] getMemoFee - Get memo fee
-- [x] getBurnTrx - Get burned TRX amount
-- [x] getChainParameters - Get chain parameters
-- [x] totalTransaction - Get total transaction count
-- [x] getNextMaintenanceTime - Get next maintenance time
+- [X] listNodes - List all nodes
+- [X] getNodeInfo - Get node information
+- [X] getBandwidthPrices - Get bandwidth prices
+- [X] getEnergyPrices - Get energy prices
+- [X] getMemoFee - Get memo fee
+- [X] getBurnTrx - Get burned TRX amount
+- [X] getChainParameters - Get chain parameters
+- [X] totalTransaction - Get total transaction count
+- [X] getNextMaintenanceTime - Get next maintenance time
 - [ ] getConnectedNodes - Get connected node list
 - [ ] getBlockProduction - Get block production stats
 - [ ] getNodeMetrics - Get node performance metrics
@@ -182,22 +171,18 @@ const tronclient = new TronGrpcClient('grpc.nile.trongrid.io:50051')
 
 ### Proposal Methods
 
-- [x] getProposalList - Get all proposals
-- [x] getPaginatedProposalList - Get paginated proposals
-- [ ] getProposalById - Get proposal by ID
+- [X] getProposalList - Get all proposals
+- [X] getPaginatedProposalList - Get paginated proposals
+- [X] getProposalById - Get proposal by ID
 - [ ] createProposal - Create new network proposal
 - [ ] approveProposal - Approve network proposal
 - [ ] deleteProposal - Delete network proposal
-- [ ] getChainConfig - Get current chain configuration
 
 ### Resource Query Methods
 
-- [x] getCanDelegatedMaxSize - Get max delegatable size
-- [x] getAvailableUnfreezeCount - Get available unfreeze count
-- [x] getCanWithdrawUnfreezeAmount - Get withdrawable unfreeze amount
-- [ ] getResourceDelegationByAccount - Get resource delegation by account
-- [ ] getAccountFrozenBalance - Get account frozen balance
-- [ ] getAccountAllowance - Get account resource allowance
+- [X] getCanDelegatedMaxSize - Get max delegatable size
+- [X] getAvailableUnfreezeCount - Get available unfreeze count
+- [X] getCanWithdrawUnfreezeAmount - Get withdrawable unfreeze amount
 
 ### Market Methods
 
