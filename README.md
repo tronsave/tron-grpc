@@ -3,6 +3,8 @@
 A fully-typed TypeScript client for the [TRON](https://tron.network) blockchain
 that talks to a `java-tron` full node over **gRPC**.
 
+Developed by [TronSave](https://tronsave.io) and [SaveWallet](https://savewallet.io).
+
 The public API takes ordinary, human inputs and returns decoded, readable
 values — you never touch a `Buffer`, a base58 codec, or a sun encoding:
 
@@ -15,8 +17,20 @@ protobuf packing happen **inside** the library.
 
 ---
 
+## HomePage
+
+- **[TronSave](https://tronsave.io)**
+- **[SaveWallet](https://savewallet.io)**
+- **[TronTools](https://tools.tronsave.io/)**
+
+Questions or feedback are welcome
+[here](https://github.com/tronsave/tron-grpc/issues/new).
+
+---
+
 ## Contents
 
+- [HomePage](#homepage)
 - [Install](#install)
 - [Quick start](#quick-start)
 - [API](#api)
