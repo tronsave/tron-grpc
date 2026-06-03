@@ -2,6 +2,14 @@
   "name": "tron-grpc",
   "version": "1.0.0",
   "description": "A TypeScript client for interacting with the TRON blockchain via gRPC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tronsave/tron-grpc.git"
+  },
+  "homepage": "https://github.com/tronsave/tron-grpc#readme",
+  "bugs": {
+    "url": "https://github.com/tronsave/tron-grpc/issues"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
