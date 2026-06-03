@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package protocol;
 
+//option java_outer_classname = "BuyStorageBytesContract"; //Specify the class name of the generated Java file
 
 message BuyStorageBytesContract {
   bytes owner_address = 1;

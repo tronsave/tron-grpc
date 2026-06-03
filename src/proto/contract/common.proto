@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package protocol;
 
+//option java_outer_classname = "common"; //Specify the class name of the generated Java file
 
 enum ResourceCode {
   BANDWIDTH = 0x00;
