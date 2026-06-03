@@ -2,10 +2,13 @@ syntax = "proto3";
 
 package protocol;
 
+
+
 message Endpoint {
   bytes address = 1;
   int32 port = 2;
   bytes nodeId = 3;
+  bytes addressIpv6 = 4;
 }
 
 message PingMessage {

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package protocol;
 
+//option java_outer_classname = "VoteAssetContract"; //Specify the class name of the generated Java file
+
 message VoteAssetContract {
   bytes owner_address = 1;
   repeated bytes vote_address = 2;

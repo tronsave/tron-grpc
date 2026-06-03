@@ -2,6 +2,10 @@ syntax = "proto3";
 
 package protocol;
 
+//option java_outer_classname = "CreateSmartContract"; //Specify the class name of the generated Java file
+
+import "src/proto/Tron.proto";
+
 message SmartContract {
   message ABI {
     message Entry {

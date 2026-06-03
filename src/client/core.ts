@@ -1,0 +1,132 @@
+import * as grpc from '@grpc/grpc-js';
+import { WalletServiceClient } from '../protoLoader';
+import { TRON_NETWORKS } from '../network';
+import { normalizeDeep } from '../codecs/decode';
+import { assertExtentionOk, type Raw } from './helpers';
+
+type UnaryFn = (
+    req: unknown,
+    cb: (err: grpc.ServiceError | null, res: unknown) => void
+) => grpc.ClientUnaryCall;
+
+/** Options for constructing a {@link TronGrpcClient}. */
+export interface TronClientOptions {
+    /** Extra gRPC channel options, merged over the tuned defaults. */
+    grpcOptions?: Partial<grpc.ClientOptions>;
+    /** Custom metadata headers added to every call (e.g. `TRON-PRO-API-KEY`). */
+    headers?: Record<string, string>;
+}
+
+/**
+ * Transport core for the TRON `Wallet` gRPC service: connection management, the
+ * generic `request<T>()` escape hatch, and the shared `buildExtention` / `query`
+ * helpers used by the feature method groups that extend this class.
+ */
+export class TronClientCore {
+    private readonly walletClient: grpc.Client;
+    private readonly headers?: Record<string, string>;
+    private ready = false;
+    private watching = false;
+
+    private static readonly DEFAULT_OPTIONS: grpc.ClientOptions = {
+        'grpc.keepalive_time_ms': 20000,
+        'grpc.keepalive_timeout_ms': 10000,
+        'grpc.keepalive_permit_without_calls': 1,
+        'grpc.http2.max_pings_without_data': 0,
+        'grpc.initial_reconnect_backoff_ms': 100,
+        'grpc.max_reconnect_backoff_ms': 10000,
+        'grpc.enable_retries': 1,
+        'grpc.service_config': JSON.stringify({
+            methodConfig: [
+                {
+                    name: [{ service: 'protocol.Wallet' }],
+                    retryPolicy: {
+                        maxAttempts: 5,
+                        initialBackoff: '0.1s',
+                        maxBackoff: '10s',
+                        backoffMultiplier: 1.5,
+                        retryableStatusCodes: ['UNAVAILABLE', 'UNKNOWN', 'DEADLINE_EXCEEDED', 'RESOURCE_EXHAUSTED'],
+                    },
+                    timeout: '30s',
+                },
+            ],
+        }),
+    };
+
+    constructor(host: string = TRON_NETWORKS.mainnet.grpcHost, options: TronClientOptions = {}) {
+        this.headers = options.headers;
+        const merged: grpc.ClientOptions = { ...TronClientCore.DEFAULT_OPTIONS, ...options.grpcOptions };
+
+        if (this.headers) {
+            const headers = this.headers;
+            merged.interceptors = [
+                (opts, nextCall) =>
+                    new grpc.InterceptingCall(nextCall(opts), {
+                        start: (metadata, listener, next) => {
+                            for (const [key, value] of Object.entries(headers)) metadata.add(key, value);
+                            next(metadata, listener);
+                        },
+                    }),
+            ];
+        }
+
+        this.walletClient = new WalletServiceClient(host, grpc.credentials.createInsecure(), merged);
+        this.watchConnectivity();
+    }
+
+    /**
+     * Generic escape hatch: invoke any Wallet RPC by name and get the raw
+     * proto-loader response typed as `T` (defaults to `unknown`, never `any`).
+     */
+    request<T = unknown>(method: string, requestMessage: unknown): Promise<T> {
+        const fn = (this.walletClient as unknown as Record<string, UnaryFn>)[method];
+        if (typeof fn !== 'function') {
+            return Promise.reject(new Error(`Unknown Wallet RPC method: ${method}`));
+        }
+        return new Promise<T>((resolve, reject) => {
+            fn.call(this.walletClient, requestMessage, (err, res) => (err ? reject(err) : resolve(res as T)));
+        });
+    }
+
+    /** Run a builder RPC, assert the node accepted it, return the unsigned ext. */
+    protected async buildExtention(method: string, contract: Raw): Promise<Raw> {
+        const res = await this.request<Raw>(method, contract);
+        assertExtentionOk(method, res);
+        return res;
+    }
+
+    /** Run a query RPC and return a readable, bytes-free object. */
+    protected async query<T = Raw>(method: string, message: unknown = {}): Promise<T> {
+        return normalizeDeep(await this.request<Raw>(method, message)) as T;
+    }
+
+    /** True once the gRPC channel has reached READY. */
+    get isReady(): boolean {
+        return this.ready;
+    }
+
+    private watchConnectivity(): void {
+        if (this.watching) return;
+        this.watching = true;
+        const channel = this.walletClient.getChannel();
+        const loop = (): void => {
+            if (!this.watching) return;
+            const state = channel.getConnectivityState(true);
+            this.ready = state === grpc.connectivityState.READY;
+            channel.watchConnectivityState(state, Infinity, () => {
+                if (!this.watching) return;
+                const next = channel.getConnectivityState(false);
+                this.ready = next === grpc.connectivityState.READY;
+                if (next !== grpc.connectivityState.SHUTDOWN) loop();
+                else this.watching = false;
+            });
+        };
+        loop();
+    }
+
+    /** Stop watching channel state and close the underlying connection. */
+    close(): void {
+        this.watching = false;
+        this.walletClient.close();
+    }
+}
