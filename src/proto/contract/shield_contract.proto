@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package protocol;
 
+//option java_outer_classname = "ShieldedTransferContract"; //Specify the class name of the generated Java file
+
 // for shielded transaction
 
 message AuthenticationPath {
