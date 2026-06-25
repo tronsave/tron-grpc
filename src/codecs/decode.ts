@@ -4,7 +4,9 @@ import { sunToTrx } from '../utils/units';
 import type {
     AccountResources,
     BlockSummary,
+    BlockTransaction,
     TransactionInfoResult,
+    TransactionLog,
     TransactionResult,
     TronAccount,
     TronAccountResource,
@@ -59,7 +61,51 @@ const decodeUtf8 = (v: unknown): string | undefined => {
     return /^[\x20-\x7e].*$/.test(text) ? text : undefined;
 };
 
-/** Decode a BlockExtention (GetNowBlock2 / GetBlockByNum2) into a summary. */
+/** Decode a single TransactionInfo.Log {address, topics, data} into hex fields. */
+const decodeLog = (v: unknown): TransactionLog => {
+    const o = (v ?? {}) as Raw;
+    return {
+        address: bytesToHexField(o.address),
+        topics: Array.isArray(o.topics) ? o.topics.map(bytesToHexField) : [],
+        data: bytesToHexField(o.data),
+    };
+};
+
+/** Decode a repeated TransactionInfo.Log field. */
+export const decodeLogs = (v: unknown): TransactionLog[] => (Array.isArray(v) ? v.map(decodeLog) : []);
+
+/** Decode a repeated InternalTransaction field into normalized, JSON-safe objects. */
+export const decodeInternalTransactions = (v: unknown): Record<string, unknown>[] =>
+    Array.isArray(v) ? (v.map(normalizeDeep) as Record<string, unknown>[]) : [];
+
+/** Decode one TransactionExtention from a BlockExtention into a full typed view. */
+const decodeBlockTransaction = (v: unknown): BlockTransaction => {
+    const ext = (v ?? {}) as Raw;
+    const tx = (ext.transaction ?? {}) as Raw;
+    const rawData = (tx.raw_data ?? {}) as Raw;
+    const contracts = Array.isArray(rawData.contract) ? (rawData.contract as Raw[]) : [];
+    const signature = Array.isArray(tx.signature) ? tx.signature : [];
+    const ret = Array.isArray(tx.ret) ? (tx.ret as Raw[]) : [];
+    return {
+        txid: bytesToHexField(ext.txid),
+        contractType: contracts[0]?.type as string | undefined,
+        ret: ret.map(r => String(r.contractRet ?? '')),
+        signatures: signature.map(bytesToHexField),
+        energyUsed: toIntString(ext.energy_used),
+        energyPenalty: toIntString(ext.energy_penalty),
+        logs: decodeLogs(ext.logs),
+        internalTransactions: decodeInternalTransactions(ext.internal_transactions),
+        rawData: normalizeDeep(rawData) as Record<string, unknown>,
+        raw: normalizeDeep(ext) as Record<string, unknown>,
+    };
+};
+
+/**
+ * Decode a BlockExtention (GetNowBlock2 / GetBlockByNum2).
+ *
+ * Surfaces the header summary plus every transaction in the block (fully
+ * decoded), and preserves the complete normalized message under `raw`.
+ */
 export const decodeBlock = (res: Raw): BlockSummary => {
     const header = (res.block_header ?? {}) as Raw;
     const raw = (header.raw_data ?? {}) as Raw;
@@ -73,6 +119,10 @@ export const decodeBlock = (res: Raw): BlockSummary => {
         witnessAddress: decodeAddress(raw.witness_address as Uint8Array) ?? '',
         version: toNumber(raw.version),
         txCount: transactions.length,
+        witnessSignature: bytesToHexField(header.witness_signature) || undefined,
+        accountStateRoot: bytesToHexField(raw.accountStateRoot) || undefined,
+        transactions: transactions.map(decodeBlockTransaction),
+        raw: normalizeDeep(res) as Record<string, unknown>,
     };
 };
 
@@ -246,12 +296,18 @@ export const decodeAccountResources = (res: Raw): AccountResources => ({
     netLimit: toIntString(res.NetLimit),
     totalNetLimit: toIntString(res.TotalNetLimit),
     totalNetWeight: toIntString(res.TotalNetWeight),
+    totalTronPowerWeight: toIntString(res.TotalTronPowerWeight),
     energyUsed: toIntString(res.EnergyUsed),
     energyLimit: toIntString(res.EnergyLimit),
     totalEnergyLimit: toIntString(res.TotalEnergyLimit),
     totalEnergyWeight: toIntString(res.TotalEnergyWeight),
     tronPowerUsed: toIntString(res.tronPowerUsed),
     tronPowerLimit: toIntString(res.tronPowerLimit),
+    assetNetUsed: decodeInt64Map(res.assetNetUsed),
+    assetNetLimit: decodeInt64Map(res.assetNetLimit),
+    storageUsed: toIntString(res.storageUsed),
+    storageLimit: toIntString(res.storageLimit),
+    raw: normalizeDeep(res) as Record<string, unknown>,
 });
 
 /** Decode a Transaction (GetTransactionById) into a readable view. */
@@ -267,6 +323,7 @@ export const decodeTransaction = (res: Raw, txid: string): TransactionResult => 
         signatures: signature.map(bytesToHexField),
         ret: ret.map(r => String(r.contractRet ?? '')),
         rawData: normalizeDeep(rawData) as Record<string, unknown>,
+        raw: normalizeDeep(res) as Record<string, unknown>,
         found,
     };
 };
@@ -289,6 +346,15 @@ export const decodeTransactionInfo = (res: Raw): TransactionInfoResult => {
         contractResult: contractResult.map(bytesToHexField),
         contractAddress: decodeAddress(res.contract_address as Uint8Array),
         receipt,
+        resMessage: bytesToHexField(res.resMessage) || undefined,
+        logs: decodeLogs(res.log),
+        internalTransactions: decodeInternalTransactions(res.internal_transactions),
+        withdrawAmount: toIntString(res.withdraw_amount),
+        unfreezeAmount: toIntString(res.unfreeze_amount),
+        withdrawExpireAmount: toIntString(res.withdraw_expire_amount),
+        cancelUnfreezeV2Amount: decodeInt64Map(res.cancel_unfreezeV2_amount),
+        assetIssueID: typeof res.assetIssueID === 'string' && res.assetIssueID.length > 0 ? res.assetIssueID : undefined,
+        raw: normalizeDeep(res) as Record<string, unknown>,
         found: idHex.length > 0,
     };
 };

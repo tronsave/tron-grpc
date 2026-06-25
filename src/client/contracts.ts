@@ -1,10 +1,11 @@
 import { TronClientTransactions } from './transactions';
-import { assertExtentionOk, buildTriggerRequest, decodeConstantResult, intString, sunString, type Raw } from './helpers';
+import { assertExtentionOk, buildTriggerRequest, decodeConstantResult, decodeReturn, intString, sunString, type Raw } from './helpers';
 import { toAddressBytes } from '../utils/address';
 import { toBytes } from '../utils/hex';
 import { fromBaseUnits } from '../utils/units';
+import { normalizeDeep } from '../codecs/decode';
 import { encodeAddressParam, decodeUint256 } from '../codecs/abi';
-import type { ConstantCallResult, DeployContractInput, Trc20Balance, TriggerContractInput } from '../types';
+import type { ConstantCallResult, DeployContractInput, EstimateEnergyResult, Trc20Balance, TriggerContractInput } from '../types';
 
 /** Smart-contract calls, deployment, and TRC20 reads. */
 export class TronClientContracts extends TronClientTransactions {
@@ -26,13 +27,17 @@ export class TronClientContracts extends TronClientTransactions {
     }
 
     /** Estimate energy for a contract call (`EstimateEnergy`). */
-    async estimateEnergy(input: TriggerContractInput): Promise<{ energyRequired: number }> {
+    async estimateEnergy(input: TriggerContractInput): Promise<EstimateEnergyResult> {
         if (!input.functionSelector && input.data === undefined) {
             throw new Error('estimateEnergy requires functionSelector+params or data');
         }
         const res = await this.request<Raw>('EstimateEnergy', buildTriggerRequest(input));
         assertExtentionOk('estimateEnergy', res);
-        return { energyRequired: Number(res.energy_required ?? 0) };
+        return {
+            energyRequired: Number(res.energy_required ?? 0),
+            result: decodeReturn(res.result),
+            raw: normalizeDeep(res) as Record<string, unknown>,
+        };
     }
 
     /**
