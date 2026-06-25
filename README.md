@@ -108,17 +108,17 @@ const client = new TronGrpcClient('grpc.trongrid.io:50051', {
 
 | Method | Returns | Notes |
 | --- | --- | --- |
-| `getNowBlock()` | `BlockSummary` | Current head block. |
-| `getBlockByNum(num)` | `BlockSummary` | Block by height. |
+| `getNowBlock()` | `BlockSummary` | Head block + every transaction fully decoded, + `raw`. |
+| `getBlockByNum(num)` | `BlockSummary` | Block by height + full `transactions[]`, + `raw`. |
 | `getAccount(address)` | `TronAccount` | Full account: balances, TRC10 assets, staking (v1/v2), resources, permissions, votes, `exists` flag, + `raw` (every field). |
 | `getBalance(address)` | `string` | TRX balance as a decimal string. |
-| `getAccountResources(address)` | `AccountResources` | Bandwidth + energy. |
-| `getTransactionById(txid)` | `TransactionResult` | Decoded tx (`found` flag). |
-| `getTransactionInfoById(txid)` | `TransactionInfoResult` | Receipt: block, fee, result. |
+| `getAccountResources(address)` | `AccountResources` | Bandwidth + energy + per-asset net, TRON-power weight, storage, + `raw`. |
+| `getTransactionById(txid)` | `TransactionResult` | Decoded tx (`found` flag), + `raw` (full `ret`). |
+| `getTransactionInfoById(txid)` | `TransactionInfoResult` | Receipt: block, fee, result, **event `logs`**, `internalTransactions`, `resMessage`, + `raw`. |
 | `getTrc20Balance(contract, owner, decimals?)` | `Trc20Balance` | `balanceOf` via constant call. |
-| `triggerConstantContract(input)` | `ConstantCallResult` | Read-only contract call. |
+| `triggerConstantContract(input)` | `ConstantCallResult` | Read-only call + `logs`, `energyPenalty`, `internalTransactions`, + `raw`. |
 | `triggerContract(input)` | `object` | Unsigned state-changing call (`TransactionExtention`). |
-| `estimateEnergy(input)` | `{ energyRequired }` | Energy estimate. |
+| `estimateEnergy(input)` | `EstimateEnergyResult` | Energy estimate + `result`, + `raw`. |
 | `createTransaction(from, to, amountTrx)` | `object` | Unsigned TRX transfer. |
 | `signAndBroadcast(extention, privateKey)` | `BroadcastResult` | Sign + broadcast. |
 | `sendTrx({ from?, to, amount, privateKey })` | `BroadcastResult` | Create → sign → broadcast. |

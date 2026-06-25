@@ -93,6 +93,54 @@ export interface DeployContractInput {
 }
 
 /** A header summary of a block, fully decoded into readable values. */
+/** A single EVM event log (TransactionInfo.Log). */
+export interface TransactionLog {
+    /** Emitting contract address (20-byte EVM hex, no `0x41` prefix — as the node returns it). */
+    address: string;
+    /** Indexed event topics (hex). */
+    topics: string[];
+    /** Non-indexed event data (hex). */
+    data: string;
+}
+
+/** A decoded node `Return` status block (result / code / message). */
+export interface ReturnResult {
+    /** Whether the node accepted / validated the call. */
+    result: boolean;
+    /** Response code (e.g. `SUCCESS`, `CONTRACT_VALIDATE_ERROR`). */
+    code: string;
+    /** Decoded human-readable message, if any. */
+    message: string;
+}
+
+/** A fully-decoded transaction inside a block (BlockExtention.transactions). */
+export interface BlockTransaction {
+    /** Transaction id (hex). */
+    txid: string;
+    /** First contract type (e.g. `TriggerSmartContract`), if any. */
+    contractType?: string;
+    /** Execution result codes (contractRet, e.g. `SUCCESS`). */
+    ret: string[];
+    /** Signatures (hex). */
+    signatures: string[];
+    /** Energy used by this transaction, as an exact integer string. */
+    energyUsed: string;
+    /** Energy penalty applied to this transaction, as an exact integer string. */
+    energyPenalty: string;
+    /** EVM event logs emitted by this transaction. */
+    logs: TransactionLog[];
+    /** Internal transactions triggered (normalized: addresses base58, bytes hex). */
+    internalTransactions: Record<string, unknown>[];
+    /** Decoded `raw_data` (contracts, ref_block_*, expiration, fee_limit; addresses base58). */
+    rawData: Record<string, unknown>;
+    /** Full normalized TransactionExtention — every field. */
+    raw: Record<string, unknown>;
+}
+
+/**
+ * A block view. Carries the header summary plus every transaction in the block
+ * (fully decoded), and the complete normalized message under {@link BlockSummary.raw}.
+ */
 export interface BlockSummary {
     /** Block height. */
     number: number;
@@ -110,6 +158,14 @@ export interface BlockSummary {
     version: number;
     /** Number of transactions in the block. */
     txCount: number;
+    /** Block producer's signature over the header (hex), if present. */
+    witnessSignature?: string;
+    /** Account state root hash of the block (hex), if present. */
+    accountStateRoot?: string;
+    /** Every transaction in the block, fully decoded. */
+    transactions: BlockTransaction[];
+    /** Full normalized BlockExtention — every field. */
+    raw: Record<string, unknown>;
 }
 
 /** Account state with balance exposed both as raw sun and decimal TRX. */
@@ -307,12 +363,24 @@ export interface AccountResources {
     netLimit: string;
     totalNetLimit: string;
     totalNetWeight: string;
+    /** Network-wide total TRON power (vote) weight. */
+    totalTronPowerWeight: string;
     energyUsed: string;
     energyLimit: string;
     totalEnergyLimit: string;
     totalEnergyWeight: string;
     tronPowerUsed: string;
     tronPowerLimit: string;
+    /** Per-TRC10 free bandwidth consumed, keyed by asset id. */
+    assetNetUsed: Record<string, string>;
+    /** Per-TRC10 free bandwidth limit, keyed by asset id. */
+    assetNetLimit: Record<string, string>;
+    /** Account storage consumed (legacy storage resource). */
+    storageUsed: string;
+    /** Account storage limit (legacy storage resource). */
+    storageLimit: string;
+    /** Full normalized AccountResourceMessage — every field. */
+    raw: Record<string, unknown>;
 }
 
 /** A decoded transaction (from GetTransactionById). */
@@ -327,6 +395,8 @@ export interface TransactionResult {
     ret: string[];
     /** Decoded `raw_data` passthrough (addresses base58, numbers as strings). */
     rawData: Record<string, unknown>;
+    /** Full normalized Transaction — every field, incl. complete `ret` Result objects. */
+    raw: Record<string, unknown>;
     /** False when no transaction exists for the id. */
     found: boolean;
 }
@@ -349,6 +419,24 @@ export interface TransactionInfoResult {
     contractAddress?: string;
     /** Energy / bandwidth receipt, numbers as strings. */
     receipt: Record<string, string>;
+    /** Revert / error message (hex) from a failed contract execution, if any. */
+    resMessage?: string;
+    /** EVM event logs emitted by the transaction. */
+    logs: TransactionLog[];
+    /** Internal transactions triggered (normalized: addresses base58, bytes hex). */
+    internalTransactions: Record<string, unknown>[];
+    /** Staking reward withdrawal amount in sun (exact string). */
+    withdrawAmount: string;
+    /** Amount unfrozen, Stake 1.0, in sun (exact string). */
+    unfreezeAmount: string;
+    /** Stake 2.0 expired-unfreeze withdrawal amount in sun (exact string). */
+    withdrawExpireAmount: string;
+    /** Per-resource amounts re-frozen when cancelling a Stake 2.0 unfreeze. */
+    cancelUnfreezeV2Amount: Record<string, string>;
+    /** TRC10 asset id associated with the transaction, if any. */
+    assetIssueID?: string;
+    /** Full normalized TransactionInfo — every field (incl. exchange / order / shielded). */
+    raw: Record<string, unknown>;
     /** False when no receipt exists yet for the id. */
     found: boolean;
 }
@@ -369,6 +457,28 @@ export interface ConstantCallResult {
     constantResult: string[];
     /** Estimated energy used by the call. */
     energyUsed: number;
+    /** Energy penalty applied to the call, as an exact integer string. */
+    energyPenalty: string;
+    /** EVM event logs emitted during the simulated call. */
+    logs: TransactionLog[];
+    /** Internal transactions triggered (normalized: addresses base58, bytes hex). */
+    internalTransactions: Record<string, unknown>[];
+    /** Node `Return` status (result / code / message). */
+    result?: ReturnResult;
+    /** Simulated transaction id (hex), if present. */
+    txid?: string;
+    /** Full normalized TransactionExtention — every field. */
+    raw: Record<string, unknown>;
+}
+
+/** Result of an `estimateEnergy` call. */
+export interface EstimateEnergyResult {
+    /** Estimated energy required for the call. */
+    energyRequired: number;
+    /** Node `Return` status (result / code / message). */
+    result?: ReturnResult;
+    /** Full normalized EstimateEnergyMessage — every field. */
+    raw: Record<string, unknown>;
 }
 
 /** Result of broadcasting a signed transaction. */
