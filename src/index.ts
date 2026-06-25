@@ -25,8 +25,15 @@ export type {
     Trc20Balance,
     TriggerContractInput,
     TronAccount,
+    TronAccountResource,
     TronAccountType,
+    TronAccountVote,
+    TronFrozen,
+    TronFrozenV2,
+    TronPermission,
+    TronPermissionKey,
     TronResource,
+    TronUnfrozenV2,
     VoteInput,
 } from './types';
 
