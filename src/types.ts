@@ -113,6 +113,100 @@ export interface BlockSummary {
 }
 
 /** Account state with balance exposed both as raw sun and decimal TRX. */
+/** A single witness vote held by an account. */
+export interface TronAccountVote {
+    /** Super-representative address voted for (base58). */
+    voteAddress: string;
+    /** Number of votes cast, as an exact integer string. */
+    voteCount: string;
+}
+
+/** A legacy (Stake 1.0) frozen balance entry. */
+export interface TronFrozen {
+    /** Frozen amount in sun, as an exact integer string. */
+    frozenBalance: string;
+    /** Unix ms when this frozen balance expires. */
+    expireTime: number;
+}
+
+/** A Stake 2.0 frozen balance entry. */
+export interface TronFrozenV2 {
+    /** Resource the stake is frozen for (`BANDWIDTH` | `ENERGY` | `TRON_POWER`). */
+    type: string;
+    /** Frozen amount in sun, as an exact integer string. */
+    amount: string;
+}
+
+/** A Stake 2.0 unfreezing balance entry (in the withdraw waiting period). */
+export interface TronUnfrozenV2 {
+    /** Resource being unfrozen (`BANDWIDTH` | `ENERGY` | `TRON_POWER`). */
+    type: string;
+    /** Amount being unfrozen in sun, as an exact integer string. */
+    unfreezeAmount: string;
+    /** Unix ms when the unfrozen amount becomes withdrawable. */
+    unfreezeExpireTime: number;
+}
+
+/** A signer key within a permission. */
+export interface TronPermissionKey {
+    /** Signer address (base58). */
+    address: string;
+    /** Signing weight of this key. */
+    weight: number;
+}
+
+/** An account permission (multi-sig). */
+export interface TronPermission {
+    /** Permission category (`Owner` | `Witness` | `Active`). */
+    type: string;
+    /** Permission id (Owner=0, Witness=1, Active>=2). */
+    id: number;
+    /** Human-readable permission name. */
+    permissionName: string;
+    /** Signature weight threshold required, as an exact integer string. */
+    threshold: string;
+    /** Parent permission id. */
+    parentId: number;
+    /** Hex bitmap of allowed contract types (Active permissions only). */
+    operations?: string;
+    /** Authorized keys + weights. */
+    keys: TronPermissionKey[];
+}
+
+/** Energy + storage resource block (`account_resource`). */
+export interface TronAccountResource {
+    /** Energy consumed, as an exact integer string. */
+    energyUsage: string;
+    /** Legacy (Stake 1.0) balance frozen for energy, if any. */
+    frozenBalanceForEnergy?: TronFrozen;
+    /** Unix ms of the last energy consumption. */
+    latestConsumeTimeForEnergy: number;
+    /** Energy delegated to this account by others (sun), as a string. */
+    acquiredDelegatedFrozenBalanceForEnergy: string;
+    /** Energy this account delegates to others (sun), as a string. */
+    delegatedFrozenBalanceForEnergy: string;
+    /** Storage limit, as an exact integer string. */
+    storageLimit: string;
+    /** Storage used, as an exact integer string. */
+    storageUsage: string;
+    /** Unix ms of the last storage exchange. */
+    latestExchangeStorageTime: number;
+    /** Energy usage recovery window size. */
+    energyWindowSize: string;
+    /** Stake 2.0 energy delegated to others (sun), as a string. */
+    delegatedFrozenV2BalanceForEnergy: string;
+    /** Stake 2.0 energy delegated to this account (sun), as a string. */
+    acquiredDelegatedFrozenV2BalanceForEnergy: string;
+    /** Whether the energy window is in optimized mode. */
+    energyWindowOptimized: boolean;
+}
+
+/**
+ * A fully-decoded account view — every field the node returns for an account,
+ * surfaced as clean typed properties (addresses as base58, int64 amounts as
+ * exact strings, timestamps as numbers). The complete normalized message is
+ * also available under {@link TronAccount.raw} so nothing is ever dropped.
+ */
 export interface TronAccount {
     /** Account address (base58). */
     address: string;
@@ -122,10 +216,87 @@ export interface TronAccount {
     balanceTrx: string;
     /** Decoded account name, if any. */
     name?: string;
+    /** Account type (`Normal` | `AssetIssue` | `Contract`). */
+    type?: string;
+    /** Immutable account id, if set. */
+    accountId?: string;
     /** Account creation time (ms), if present. */
     createTime?: number;
     /** False when the address has no on-chain account yet. */
     exists: boolean;
+
+    /** Bandwidth consumed from staked TRX, as an exact integer string. */
+    netUsage: string;
+    /** Free bandwidth consumed, as an exact integer string. */
+    freeNetUsage: string;
+    /** Bandwidth usage recovery window size. */
+    netWindowSize: string;
+
+    /** Unix ms of the last operation (transfer, vote, ...), if present. */
+    latestOperationTime?: number;
+    /** Unix ms of the last bandwidth consumption, if present. */
+    latestConsumeTime?: number;
+    /** Unix ms of the last free-bandwidth consumption, if present. */
+    latestConsumeFreeTime?: number;
+    /** Unix ms of the last reward withdrawal, if present. */
+    latestWithdrawTime?: number;
+
+    /** Witness block-producing allowance in sun, as an exact integer string. */
+    allowance: string;
+    /** Whether this account is a witness (super representative). */
+    isWitness: boolean;
+    /** Whether this account is a committee member. */
+    isCommittee: boolean;
+    /** Witness votes cast by this account. */
+    votes: TronAccountVote[];
+
+    /** TRC10 balances keyed by asset id (`assetV2`), values as exact strings. */
+    assets: Record<string, string>;
+    /** Legacy TRC10 balances keyed by asset name (`asset`), values as strings. */
+    assetsV1: Record<string, string>;
+    /** Issued TRC10 asset id (for asset-issuer accounts), if any. */
+    assetIssuedId?: string;
+    /** Issued TRC10 asset name (for asset-issuer accounts), if any. */
+    assetIssuedName?: string;
+
+    /** Stake 2.0 frozen balances. */
+    frozenV2: TronFrozenV2[];
+    /** Stake 2.0 balances currently unfreezing. */
+    unfrozenV2: TronUnfrozenV2[];
+    /** Stake 2.0 bandwidth delegated to others (sun), as a string. */
+    delegatedFrozenV2BalanceForBandwidth: string;
+    /** Stake 2.0 bandwidth delegated to this account (sun), as a string. */
+    acquiredDelegatedFrozenV2BalanceForBandwidth: string;
+
+    /** Legacy (Stake 1.0) frozen balances for bandwidth. */
+    frozen: TronFrozen[];
+    /** Legacy frozen supply (for asset issuers). */
+    frozenSupply: TronFrozen[];
+    /** Legacy bandwidth delegated to others (sun), as a string. */
+    delegatedFrozenBalanceForBandwidth: string;
+    /** Legacy bandwidth delegated to this account (sun), as a string. */
+    acquiredDelegatedFrozenBalanceForBandwidth: string;
+    /** Legacy TRON power amount (sun), as a string. */
+    oldTronPower: string;
+    /** Current TRON power frozen balance, if any. */
+    tronPower?: TronFrozen;
+
+    /** Energy + storage resource details. */
+    accountResource: TronAccountResource;
+
+    /** Owner permission, if set. */
+    ownerPermission?: TronPermission;
+    /** Witness permission, if set. */
+    witnessPermission?: TronPermission;
+    /** Active permissions (multi-sig). */
+    activePermission: TronPermission[];
+
+    /**
+     * The complete normalized account message — every field keyed exactly as
+     * the proto / HTTP `/wallet/getaccount` response (addresses as base58, other
+     * bytes as hex, int64 as strings). Use this for any field not surfaced above.
+     */
+    raw: Record<string, unknown>;
 }
 
 /** Bandwidth + energy resources for an account (all values as strings). */
