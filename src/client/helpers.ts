@@ -1,9 +1,9 @@
 import { toAddressBytes } from '../utils/address';
 import { toBytes } from '../utils/hex';
 import { encodeFunctionData } from '../codecs/abi';
-import { bytesToHexField } from '../codecs/decode';
+import { bytesToHexField, decodeInternalTransactions, decodeLogs, normalizeDeep } from '../codecs/decode';
 import { trxToSun, type DecimalLike } from '../utils/units';
-import type { ConstantCallResult, TriggerContractInput } from '../types';
+import type { ConstantCallResult, ReturnResult, TriggerContractInput } from '../types';
 
 /** A loose proto-loader request/response object. */
 export type Raw = Record<string, unknown>;
@@ -49,12 +49,29 @@ export const assertExtentionOk = (method: string, res: Raw): void => {
     throw new Error(`${method} failed${code ? ` (${String(code)})` : ''}: ${message || 'no message'}`);
 };
 
-/** Decode the `constant_result` of a TriggerConstantContract response. */
+/** Decode a node `Return` {result, code, message} status block. */
+export const decodeReturn = (v: unknown): ReturnResult | undefined => {
+    if (!v || typeof v !== 'object') return undefined;
+    const r = v as Raw;
+    return {
+        result: r.result === true,
+        code: typeof r.code === 'string' && r.code.length > 0 ? r.code : 'SUCCESS',
+        message: decodeReturnMessage(r.message),
+    };
+};
+
+/** Decode a full TriggerConstantContract response (constant result + logs + internal txs + status). */
 export const decodeConstantResult = (res: Raw): ConstantCallResult => {
     const constant = Array.isArray(res.constant_result) ? res.constant_result : [];
     return {
         constantResult: constant.map(bytesToHexField),
         energyUsed: Number(res.energy_used ?? 0),
+        energyPenalty: String(res.energy_penalty ?? '0'),
+        logs: decodeLogs(res.logs),
+        internalTransactions: decodeInternalTransactions(res.internal_transactions),
+        result: decodeReturn(res.result),
+        txid: bytesToHexField(res.txid) || undefined,
+        raw: normalizeDeep(res) as Record<string, unknown>,
     };
 };
 
