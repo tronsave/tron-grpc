@@ -70,10 +70,14 @@ const client = TronGrpcClient.fromNetwork('mainnet', {
 const head = await client.getNowBlock();
 console.log(head.number, head.hash); // 83259967  0000000004f6...
 
-// Account balance (TRX), as both sun and decimal
+// Full account — balances, TRC10 assets, staking, resources, permissions, votes
 const account = await client.getAccount('TWd4WrZ9wn84f5x1hZhL4DHvk738ns5jwb');
-console.log(account.balanceSun); // "11223430628613"
-console.log(account.balanceTrx); // "11223430.628613"
+console.log(account.balanceSun);   // "11223430628613"
+console.log(account.balanceTrx);   // "11223430.628613"
+console.log(account.frozenV2);     // [{ type: 'ENERGY', amount: '5000000' }, ...]
+console.log(account.assets);       // { '1002000': '1500000', ... }  (TRC10 by id)
+console.log(account.activePermission); // [{ id: 2, keys: [...], ... }]
+console.log(account.raw);          // complete normalized message (every field)
 
 // USDT (TRC20) balance
 const usdt = await client.getTrc20Balance(
@@ -106,7 +110,7 @@ const client = new TronGrpcClient('grpc.trongrid.io:50051', {
 | --- | --- | --- |
 | `getNowBlock()` | `BlockSummary` | Current head block. |
 | `getBlockByNum(num)` | `BlockSummary` | Block by height. |
-| `getAccount(address)` | `TronAccount` | `balanceSun` + `balanceTrx`; `exists` flag. |
+| `getAccount(address)` | `TronAccount` | Full account: balances, TRC10 assets, staking (v1/v2), resources, permissions, votes, `exists` flag, + `raw` (every field). |
 | `getBalance(address)` | `string` | TRX balance as a decimal string. |
 | `getAccountResources(address)` | `AccountResources` | Bandwidth + energy. |
 | `getTransactionById(txid)` | `TransactionResult` | Decoded tx (`found` flag). |
