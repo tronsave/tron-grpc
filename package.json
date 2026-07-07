@@ -1,6 +1,6 @@
 {
   "name": "tron-grpc",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A TypeScript client for interacting with the TRON blockchain via gRPC",
   "repository": {
     "type": "git",
@@ -15,6 +15,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

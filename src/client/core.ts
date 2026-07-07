@@ -2,7 +2,8 @@ import * as grpc from '@grpc/grpc-js';
 import { WalletServiceClient } from '../protoLoader';
 import { TRON_NETWORKS } from '../network';
 import { normalizeDeep } from '../codecs/decode';
-import { assertExtentionOk, type Raw } from './helpers';
+import { createLogger, resolveLogLevel, type Logger, type LogLevel } from '../logger';
+import { assertExtentionOk as checkExtentionOk, type Raw } from './helpers';
 
 type UnaryFn = (
     req: unknown,
@@ -15,7 +16,28 @@ export interface TronClientOptions {
     grpcOptions?: Partial<grpc.ClientOptions>;
     /** Custom metadata headers added to every call (e.g. `TRON-PRO-API-KEY`). */
     headers?: Record<string, string>;
+    /** Minimum log level. Defaults to `'silent'`, or `TRON_GRPC_LOG_LEVEL` when set. */
+    logLevel?: LogLevel;
+    /** Custom log sink (e.g. pino/winston). Defaults to `console`. */
+    logger?: Logger;
 }
+
+const connectivityStateName = (state: number): string => {
+    switch (state) {
+        case grpc.connectivityState.IDLE:
+            return 'IDLE';
+        case grpc.connectivityState.CONNECTING:
+            return 'CONNECTING';
+        case grpc.connectivityState.READY:
+            return 'READY';
+        case grpc.connectivityState.TRANSIENT_FAILURE:
+            return 'TRANSIENT_FAILURE';
+        case grpc.connectivityState.SHUTDOWN:
+            return 'SHUTDOWN';
+        default:
+            return String(state);
+    }
+};
 
 /**
  * Transport core for the TRON `Wallet` gRPC service: connection management, the
@@ -25,8 +47,10 @@ export interface TronClientOptions {
 export class TronClientCore {
     private readonly walletClient: grpc.Client;
     private readonly headers?: Record<string, string>;
+    protected readonly log: Logger;
     private ready = false;
     private watching = false;
+    private lastConnectivityState?: number;
 
     private static readonly DEFAULT_OPTIONS: grpc.ClientOptions = {
         'grpc.keepalive_time_ms': 20000,
@@ -55,6 +79,7 @@ export class TronClientCore {
 
     constructor(host: string = TRON_NETWORKS.mainnet.grpcHost, options: TronClientOptions = {}) {
         this.headers = options.headers;
+        this.log = createLogger(resolveLogLevel(options.logLevel), options.logger);
         const merged: grpc.ClientOptions = { ...TronClientCore.DEFAULT_OPTIONS, ...options.grpcOptions };
 
         if (this.headers) {
@@ -71,6 +96,7 @@ export class TronClientCore {
         }
 
         this.walletClient = new WalletServiceClient(host, grpc.credentials.createInsecure(), merged);
+        this.log.info(`connecting to ${host}`);
         this.watchConnectivity();
     }
 
@@ -81,17 +107,39 @@ export class TronClientCore {
     request<T = unknown>(method: string, requestMessage: unknown): Promise<T> {
         const fn = (this.walletClient as unknown as Record<string, UnaryFn>)[method];
         if (typeof fn !== 'function') {
+            this.log.error(`unknown RPC method: ${method}`);
             return Promise.reject(new Error(`Unknown Wallet RPC method: ${method}`));
         }
+        const started = Date.now();
+        this.log.debug(`→ ${method}`);
         return new Promise<T>((resolve, reject) => {
-            fn.call(this.walletClient, requestMessage, (err, res) => (err ? reject(err) : resolve(res as T)));
+            fn.call(this.walletClient, requestMessage, (err, res) => {
+                if (err) {
+                    this.log.error(`✗ ${method} (${err.code}): ${err.message}`);
+                    reject(err);
+                    return;
+                }
+                this.log.debug(`✓ ${method} (${Date.now() - started}ms)`);
+                resolve(res as T);
+            });
         });
+    }
+
+    /** Assert TRON-level success on an extention response; logs at error before throw. */
+    protected assertExtentionOk(method: string, res: Raw): void {
+        try {
+            checkExtentionOk(method, res);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.log.error(`✗ ${message}`);
+            throw err;
+        }
     }
 
     /** Run a builder RPC, assert the node accepted it, return the unsigned ext. */
     protected async buildExtention(method: string, contract: Raw): Promise<Raw> {
         const res = await this.request<Raw>(method, contract);
-        assertExtentionOk(method, res);
+        this.assertExtentionOk(method, res);
         return res;
     }
 
@@ -105,6 +153,17 @@ export class TronClientCore {
         return this.ready;
     }
 
+    private logConnectivityChange(state: number): void {
+        if (this.lastConnectivityState === state) return;
+        const name = connectivityStateName(state);
+        if (state === grpc.connectivityState.TRANSIENT_FAILURE) {
+            this.log.warn(`channel state: ${name}`);
+        } else {
+            this.log.info(`channel state: ${name}`);
+        }
+        this.lastConnectivityState = state;
+    }
+
     private watchConnectivity(): void {
         if (this.watching) return;
         this.watching = true;
@@ -113,10 +172,12 @@ export class TronClientCore {
             if (!this.watching) return;
             const state = channel.getConnectivityState(true);
             this.ready = state === grpc.connectivityState.READY;
+            this.logConnectivityChange(state);
             channel.watchConnectivityState(state, Infinity, () => {
                 if (!this.watching) return;
                 const next = channel.getConnectivityState(false);
                 this.ready = next === grpc.connectivityState.READY;
+                this.logConnectivityChange(next);
                 if (next !== grpc.connectivityState.SHUTDOWN) loop();
                 else this.watching = false;
             });
@@ -128,5 +189,6 @@ export class TronClientCore {
     close(): void {
         this.watching = false;
         this.walletClient.close();
+        this.log.debug('connection closed');
     }
 }

@@ -85,12 +85,14 @@ export class TronClientTransactions extends TronClientAccounts {
         transaction.signature = [hexToBytesSafe(signature)];
 
         const ret = await this.request<Raw>('BroadcastTransaction', transaction);
-        return {
-            txid,
-            success: ret.result === true,
-            code: ret.code != null ? String(ret.code) : undefined,
-            message: decodeReturnMessage(ret.message) || undefined,
-        };
+        const success = ret.result === true;
+        const code = ret.code != null ? String(ret.code) : undefined;
+        const message = decodeReturnMessage(ret.message) || undefined;
+        if (!success) {
+            const detail = code ? ` (${code})` : '';
+            this.log.error(`✗ BroadcastTransaction failed${detail}: ${message || 'no message'}`);
+        }
+        return { txid, success, code, message };
     }
 
     /**
