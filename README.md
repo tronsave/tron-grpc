@@ -44,6 +44,7 @@ Questions or feedback are welcome
 - [Design: why gRPC + proto-loader](#design-why-grpc--proto-loader)
 - [Implemented methods](#implemented-methods)
 - [Assumptions](#assumptions)
+- [Changelog](CHANGELOG.md)
 
 ---
 
@@ -105,6 +106,36 @@ const client = new TronGrpcClient('grpc.trongrid.io:50051', {
   grpcOptions: { 'grpc.keepalive_time_ms': 30000 },  // merged over tuned defaults
 });
 ```
+
+#### Logging
+
+The client can emit lightweight diagnostic logs for connection state and RPC
+traffic. Set `logLevel` in options or `TRON_GRPC_LOG_LEVEL` in the environment
+(case-insensitive). Defaults to `silent` (no output).
+
+```ts
+const client = TronGrpcClient.fromNetwork('mainnet', {
+  logLevel: 'debug',
+  headers: { 'TRON-PRO-API-KEY': process.env.TRON_PRO_API_KEY ?? '' },
+});
+```
+
+Pass a custom `logger` sink (e.g. pino or winston) to receive filtered messages
+instead of `console`. Logs never include header values, request/response
+payloads, or secrets — only method names, timing, gRPC status codes, and
+connectivity state transitions.
+
+| Level | Emits |
+| --- | --- |
+| `silent` | Nothing (default). |
+| `error` | RPC failures and unknown method names. |
+| `warn` | Everything at `error`, plus `TRANSIENT_FAILURE` connectivity warnings. |
+| `info` | Everything at `warn`, plus target host on connect and connectivity state changes. |
+| `debug` | Everything at `info`, plus per-RPC start/success timing and `close()`. |
+
+> **Note:** This is separate from gRPC transport internals (`GRPC_VERBOSITY`,
+> `GRPC_TRACE`). Those env vars control the underlying `@grpc/grpc-js` channel,
+> not this library's `[tron-grpc]`-prefixed logs.
 
 | Method | Returns | Notes |
 | --- | --- | --- |
@@ -217,6 +248,7 @@ to supply secrets is via the environment, never in code:
 | Var | Used by | Purpose |
 | --- | --- | --- |
 | `TRON_PRO_API_KEY` | client + tests | TronGrid API key (raises rate limits), sent as the `TRON-PRO-API-KEY` gRPC metadata header. |
+| `TRON_GRPC_LOG_LEVEL` | client | Diagnostic log level: `silent`, `error`, `warn`, `info`, or `debug` (default `silent`). |
 | `TRON_PRIVATE_KEY` | broadcast test | **Testnet** private key (hex, 64 chars). |
 | `TRON_TO` | broadcast test | Recipient address for the test transfer. |
 | `TRON_NETWORK` | broadcast test | `nile` or `shasta` (the test refuses `mainnet`). |

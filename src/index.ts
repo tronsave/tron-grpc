@@ -6,6 +6,7 @@
  */
 export { TronGrpcClient } from './client';
 export type { TronClientOptions } from './client';
+export type { LogLevel, Logger } from './logger';
 
 export { TRON_NETWORKS } from './network';
 export type { TronNetwork, TronNetworkConfig } from './network';
