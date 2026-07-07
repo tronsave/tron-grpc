@@ -1,5 +1,5 @@
 import { TronClientTransactions } from './transactions';
-import { assertExtentionOk, buildTriggerRequest, decodeConstantResult, decodeReturn, intString, sunString, type Raw } from './helpers';
+import { buildTriggerRequest, decodeConstantResult, decodeReturn, intString, sunString, type Raw } from './helpers';
 import { toAddressBytes } from '../utils/address';
 import { toBytes } from '../utils/hex';
 import { fromBaseUnits } from '../utils/units';
@@ -12,7 +12,7 @@ export class TronClientContracts extends TronClientTransactions {
     /** Read-only contract call (`TriggerConstantContract`). */
     async triggerConstantContract(input: TriggerContractInput): Promise<ConstantCallResult> {
         const res = await this.request<Raw>('TriggerConstantContract', buildTriggerRequest(input));
-        assertExtentionOk('triggerConstantContract', res);
+        this.assertExtentionOk('triggerConstantContract', res);
         return decodeConstantResult(res);
     }
 
@@ -22,7 +22,7 @@ export class TronClientContracts extends TronClientTransactions {
      */
     async triggerContract(input: TriggerContractInput): Promise<Raw> {
         const res = await this.request<Raw>('TriggerContract', buildTriggerRequest(input));
-        assertExtentionOk('triggerContract', res);
+        this.assertExtentionOk('triggerContract', res);
         return res;
     }
 
@@ -32,7 +32,7 @@ export class TronClientContracts extends TronClientTransactions {
             throw new Error('estimateEnergy requires functionSelector+params or data');
         }
         const res = await this.request<Raw>('EstimateEnergy', buildTriggerRequest(input));
-        assertExtentionOk('estimateEnergy', res);
+        this.assertExtentionOk('estimateEnergy', res);
         return {
             energyRequired: Number(res.energy_required ?? 0),
             result: decodeReturn(res.result),
