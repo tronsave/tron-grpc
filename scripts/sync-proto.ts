@@ -44,6 +44,63 @@ message Any {
 }
 `;
 
+/**
+ * TIP-899 post-quantum signature support, vendored into Tron.proto.
+ *
+ * Upstream has not merged TIP-899 yet, so a plain sync would silently drop the
+ * PQ fields and break PQ signing. Re-inject them when the synced proto lacks
+ * them; once upstream ships them natively, this becomes a no-op.
+ */
+const VENDORED_PQ = `
+// TIP-899: post-quantum signature schemes.
+enum PQScheme {
+  UNKNOWN_PQ_SCHEME = 0; // proto3 default; never registered, rejected at verification
+  FN_DSA_512 = 1;        // FN-DSA-512 / Falcon-512 (FIPS 206 draft)
+  ML_DSA_44 = 2;         // ML-DSA-44 / Dilithium-2 (FIPS 204)
+}
+
+// TIP-899: algorithm-agnostic PQ signature envelope. PQ schemes have no
+// \`ecrecover\` equivalent, so the full public key travels with the signature.
+message PQAuthSig {
+  PQScheme scheme = 1; // required; UNKNOWN_PQ_SCHEME is rejected at verification
+  bytes public_key = 2;
+  bytes signature = 3;
+}
+`;
+
+/** Anchor lines the PQ fields are spliced after, keyed by the field to add. */
+const PQ_FIELDS: ReadonlyArray<{ anchor: string; field: string }> = [
+  {
+    anchor: '  repeated Result ret = 5;',
+    field:
+      '  // TIP-899: post-quantum signatures. Coexists with `signature` — a multi-sig\n' +
+      '  // account may be authorized by a mix of ECDSA and PQ signers.\n' +
+      '  repeated PQAuthSig pq_auth_sig = 6;',
+  },
+  {
+    anchor: '  bytes witness_signature = 2;',
+    field:
+      '  // TIP-899: mutually exclusive with `witness_signature` — a block carries at\n' +
+      '  // most one of the two.\n' +
+      '  PQAuthSig pq_auth_sig = 3;',
+  },
+];
+
+/** Splice TIP-899 messages + fields into Tron.proto when upstream lacks them. */
+function vendorPq(src: string): string {
+  if (/\bmessage\s+PQAuthSig\b/.test(src)) return src; // upstream shipped it
+  let out = src;
+  for (const { anchor, field } of PQ_FIELDS) {
+    if (!out.includes(anchor)) {
+      throw new Error(
+        `Tron.proto: PQ anchor not found: ${anchor.trim()} — upstream changed shape; re-check TIP-899 field numbers`,
+      );
+    }
+    out = out.replace(anchor, `${anchor}\n${field}`);
+  }
+  return `${out.replace(/\s*$/, "")}\n${VENDORED_PQ}`;
+}
+
 /** Discover every core/contract/*.proto in the repo so newly-added contracts sync too. */
 async function listContractProtos(): Promise<string[]> {
   const url = `https://api.github.com/repos/${REPO}/git/trees/${REF}?recursive=1`;
@@ -96,6 +153,7 @@ function transform(remote: string, text: string): string {
   if (remote === "core/Tron.proto") {
     out = out.replace(/google\.protobuf\.Any/g, "Any");
     if (!/\bmessage\s+Any\b/.test(out)) out = `${out.replace(/\s*$/, "")}\n${VENDORED_ANY}`;
+    out = vendorPq(out);
   }
   if (remote === "api/api.proto") out = stripHttpOptions(out);
 

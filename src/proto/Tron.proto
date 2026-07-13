@@ -445,6 +445,24 @@ message Transaction {
   // only support size = 1,  repeated list here for muti-sig extension
   repeated bytes signature = 2;
   repeated Result ret = 5;
+  // TIP-899: post-quantum signatures. Coexists with `signature` — a multi-sig
+  // account may be authorized by a mix of ECDSA and PQ signers.
+  repeated PQAuthSig pq_auth_sig = 6;
+}
+
+// TIP-899: post-quantum signature schemes.
+enum PQScheme {
+  UNKNOWN_PQ_SCHEME = 0; // proto3 default; never registered, rejected at verification
+  FN_DSA_512 = 1;        // FN-DSA-512 / Falcon-512 (FIPS 206 draft)
+  ML_DSA_44 = 2;         // ML-DSA-44 / Dilithium-2 (FIPS 204)
+}
+
+// TIP-899: algorithm-agnostic PQ signature envelope. PQ schemes have no
+// `ecrecover` equivalent, so the full public key travels with the signature.
+message PQAuthSig {
+  PQScheme scheme = 1; // required; UNKNOWN_PQ_SCHEME is rejected at verification
+  bytes public_key = 2;
+  bytes signature = 3;
 }
 
 message TransactionInfo {
@@ -511,6 +529,9 @@ message BlockHeader {
   }
   raw raw_data = 1;
   bytes witness_signature = 2;
+  // TIP-899: mutually exclusive with `witness_signature` — a block carries at
+  // most one of the two.
+  PQAuthSig pq_auth_sig = 3;
 }
 
 // block

@@ -21,9 +21,13 @@ export type {
     DeployContractInput,
     EstimateEnergyResult,
     KeyInput,
+    KeyType,
     PermissionInput,
+    PqSignature,
     ReturnResult,
     SendTrxParams,
+    SigningKey,
+    TronPqKey,
     TransactionInfoResult,
     TransactionLog,
     TransactionResult,
@@ -68,14 +72,61 @@ export type { DecimalLike } from './utils/units';
 // Crypto utilities
 export {
     fromMnemonic,
+    hashMessage,
     privateKeyToAddress,
     privateKeyToAddressBytes,
     privateKeyToBytes,
+    recoverAddress,
+    recoverAddressBytes,
     signDigest,
     signMessage,
     signTransactionId,
+    verifyMessage,
+    verifyTransactionId,
     TRON_MESSAGE_PREFIX,
 } from './utils/crypto';
+
+// Transaction verification (ECDSA + post-quantum, auto-dispatched)
+export { computeTxid, verifyTransaction } from './utils/verify';
+export type { TransactionSigner, TransactionVerification } from './utils/verify';
+
+// Post-quantum signatures (TIP-899, FN-DSA-512 / Falcon-512)
+export {
+    decodePqEnvelope,
+    encodePqEnvelope,
+    encodeVerifyFnDsa512Input,
+    falconPrivateKeyToBytes,
+    falconPrivateKeyToPublicKey,
+    falconPublicKeyToAddress,
+    falconPublicKeyToAddressBytes,
+    falconPublicKeyToBytes,
+    generateFalconKey,
+    isPqEnvelope,
+    PQScheme,
+    pqPublicKeyToAddress,
+    pqPublicKeyToAddressBytes,
+    signDigestFalcon,
+    signMessagePQ,
+    signTransactionIdFalcon,
+    toPrecompileSignature,
+    verifyDigestFalcon,
+    verifyMessagePQ,
+    verifySignedMessage,
+    FALCON_PRECOMPILE_SIGNATURE_BYTES,
+    FALCON_PRIVATE_KEY_BYTES,
+    FALCON_PUBLIC_KEY_BYTES,
+    FALCON_SEED_BYTES,
+    FALCON_SIGNATURE_HEADER,
+    FALCON_SIGNATURE_MAX_BYTES,
+    FALCON_SIGNATURE_MIN_BYTES,
+    PQ_ENVELOPE_MAGIC,
+    VERIFY_FN_DSA_512_PRECOMPILE,
+} from './utils/pq';
+export type { FalconKeyPair, PqEnvelope, PQSchemeValue } from './utils/pq';
+
+// Signing strategies (ECDSA + post-quantum, selected by key type)
+export { addressOf, EcdsaSigner, FalconSigner, getSigner, isPqKey } from './utils/signer';
+export type { Signer } from './utils/signer';
 
 // Hex + ABI helpers
 export { bytesToHex, hexToBytes, hexToBytesSafe, stripHexPrefix, toBytes, toHex } from './utils/hex';

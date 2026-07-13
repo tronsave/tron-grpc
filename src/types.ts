@@ -3,6 +3,30 @@ import type { DecimalLike } from './utils/units';
 /** TRON resource kinds used by staking / delegation. */
 export type TronResource = 'BANDWIDTH' | 'ENERGY' | 'TRON_POWER';
 
+/** Signature algorithm backing an account's key. */
+export type KeyType = 'ECDSA' | 'FALCON';
+
+/**
+ * A post-quantum keypair (TIP-899 FN-DSA-512 / Falcon-512).
+ *
+ * Unlike ECDSA, the public key cannot be recovered from a signature, so it
+ * travels with every signature and must be known to the signer.
+ */
+export interface TronPqKey {
+    /** Always `'FALCON'`. Present so keystores can tag records by algorithm. */
+    keyType?: 'FALCON';
+    /** 1280-byte FN-DSA-512 private key (hex). */
+    privateKey: string;
+    /** 896-byte FN-DSA-512 public key (hex). Derived from `privateKey` when omitted. */
+    publicKey?: string;
+}
+
+/**
+ * Anything this library can sign with: a hex secp256k1 private key — as every
+ * existing call-site passes today — or a post-quantum {@link TronPqKey}.
+ */
+export type SigningKey = string | TronPqKey;
+
 /** Account category for `createAccount`. */
 export type TronAccountType = 'Normal' | 'AssetIssue' | 'Contract';
 
@@ -384,13 +408,27 @@ export interface AccountResources {
 }
 
 /** A decoded transaction (from GetTransactionById). */
+/** A post-quantum signature carried by a transaction (TIP-899 `pq_auth_sig`). */
+export interface PqSignature {
+    /** Scheme name, e.g. `FN_DSA_512`. */
+    scheme: string;
+    /** Signer's PQ public key (hex). */
+    publicKey: string;
+    /** Signature (hex). */
+    signature: string;
+    /** Base58 address derived from `publicKey` — the account that signed. */
+    address: string;
+}
+
 export interface TransactionResult {
     /** Transaction id (hex). */
     txid: string;
     /** Contract type, e.g. `TransferContract`. */
     contractType?: string;
-    /** Signatures (hex). */
+    /** ECDSA signatures (hex). */
     signatures: string[];
+    /** Post-quantum signatures (TIP-899). Empty for ordinary ECDSA transactions. */
+    pqSignatures: PqSignature[];
     /** Execution result codes reported by the node (e.g. `SUCCESS`). */
     ret: string[];
     /** Decoded `raw_data` passthrough (addresses base58, numbers as strings). */
@@ -501,8 +539,8 @@ export interface SendTrxParams {
     to: string;
     /** Amount in TRX (decimal). Accepts number | string | bigint. */
     amount: DecimalLike;
-    /** Sender private key (hex, with or without `0x`). */
-    privateKey: string;
+    /** Sender key: an ECDSA private key (hex), or a post-quantum {@link TronPqKey}. */
+    privateKey: SigningKey;
 }
 
 /**

@@ -52,10 +52,10 @@ export const signDigest = (digest: Uint8Array, privateKey: string): string => {
 };
 
 /**
- * Sign a plain-text message using the TRON personal-message scheme:
+ * Digest a plain-text message under the TRON personal-message scheme:
  * keccak256(prefix || len(message) || message). Matches tronweb `signMessageV2`.
  */
-export const signMessage = (message: string, privateKey: string): string => {
+export const hashMessage = (message: string): Uint8Array => {
     const messageBytes = utf8(message);
     const prefixBytes = utf8(TRON_MESSAGE_PREFIX);
     const lengthBytes = utf8(String(messageBytes.length));
@@ -65,12 +65,59 @@ export const signMessage = (message: string, privateKey: string): string => {
     combined.set(lengthBytes, prefixBytes.length);
     combined.set(messageBytes, prefixBytes.length + lengthBytes.length);
 
-    return signDigest(keccak256(combined), privateKey);
+    return keccak256(combined);
 };
+
+/**
+ * Sign a plain-text message using the TRON personal-message scheme.
+ * Matches tronweb `signMessageV2`.
+ */
+export const signMessage = (message: string, privateKey: string): string =>
+    signDigest(hashMessage(message), privateKey);
 
 /** Sign a transaction id (the SHA256 digest of raw_data, given as hex). */
 export const signTransactionId = (txid: string, privateKey: string): string =>
     signDigest(hexToBytesSafe(txid), privateKey);
+
+/**
+ * Recover the signer's raw 21-byte address from a digest and a TRON/Ethereum-style
+ * `{r}{s}{v}` signature — the `ecrecover` half of {@link signDigest}.
+ */
+export const recoverAddressBytes = (digest: Uint8Array, signature: string): Uint8Array => {
+    const bytes = hexToBytesSafe(stripHexPrefix(signature));
+    if (bytes.length !== 65) throw new Error('Invalid signature length (expected 65 bytes)');
+    // v is 27/28 (TRON, Ethereum) or 0/1 (some signers emit the bare recovery bit).
+    const v = bytes[64];
+    const recovery = v >= 27 ? v - 27 : v;
+    if (recovery !== 0 && recovery !== 1) throw new Error(`Invalid signature recovery byte: ${v}`);
+
+    const parsed = secp256k1.Signature.fromBytes(bytes.subarray(0, 64), 'compact').addRecoveryBit(recovery);
+    const publicKey = parsed.recoverPublicKey(digest).toBytes(false);
+    const hash = keccak256(publicKey.subarray(1));
+    const addr = new Uint8Array(21);
+    addr[0] = TRON_ADDRESS_PREFIX;
+    addr.set(hash.subarray(-20), 1);
+    return addr;
+};
+
+/** Recover the signer's base58 address from a digest and a `{r}{s}{v}` signature. */
+export const recoverAddress = (digest: Uint8Array, signature: string): string =>
+    bytesToBase58Address(recoverAddressBytes(digest, signature));
+
+/**
+ * Verify a TRON personal-message signature and return the signer's base58 address.
+ * The ECDSA counterpart of `verifyMessagePQ`; matches tronweb `verifyMessageV2`.
+ *
+ * A signature always recovers to *some* address, so this proves only that the
+ * message was signed by whoever owns the returned address — compare it against
+ * the address you expect.
+ */
+export const verifyMessage = (message: string, signature: string): string =>
+    recoverAddress(hashMessage(message), signature);
+
+/** Verify a signature over a transaction id (hex) and return the signer's address. */
+export const verifyTransactionId = (txid: string, signature: string): string =>
+    recoverAddress(hexToBytesSafe(stripHexPrefix(txid)), signature);
 
 /**
  * Derive a TRON private key + base58 address from a BIP-39 mnemonic.

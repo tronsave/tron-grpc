@@ -11,6 +11,28 @@ export type Raw = Record<string, unknown>;
 /** Integer-amount input (token base units), stringified without precision loss. */
 export type IntLike = number | string | bigint;
 
+/** Which TIP-899 post-quantum schemes a chain accepts. */
+export interface PqCapabilities {
+    fnDsa512: boolean;
+    mlDsa44: boolean;
+}
+
+/**
+ * Read the TIP-899 activation flags out of a `GetChainParameters` response.
+ *
+ * A chain that predates TIP-899 (mainnet today) simply has no such parameters,
+ * which reads as "not enabled" — the safe answer.
+ */
+export const parsePqCapabilities = (chainParameters: Raw): PqCapabilities => {
+    const params = (chainParameters.chainParameter ?? []) as { key?: string; value?: unknown }[];
+    const enabled = (key: string): boolean =>
+        params.some(p => p.key === key && String(p.value ?? '0') === '1');
+    return {
+        fnDsa512: enabled('getAllowFnDsa512'),
+        mlDsa44: enabled('getAllowMlDsa44'),
+    };
+};
+
 /** TRX (decimal) -> sun string. */
 export const sunString = (amount: DecimalLike): string => trxToSun(amount).toString();
 

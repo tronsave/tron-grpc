@@ -1,5 +1,6 @@
 import * as protoLoader from '@grpc/proto-loader';
 import * as grpc from '@grpc/grpc-js';
+import * as protobuf from 'protobufjs';
 import * as path from 'path';
 
 // __dirname is `<root>/src` in source and `<root>/dist/src` after build. The
@@ -26,3 +27,24 @@ const loaded = grpc.loadPackageDefinition(packageDefinition) as unknown as {
 
 /** Constructor for the gRPC `protocol.Wallet` service client. */
 export const WalletServiceClient = loaded.protocol.Wallet;
+
+/**
+ * A protobuf.js view of the same protos, used to *encode* `Transaction.raw`.
+ *
+ * proto-loader can decode but not serialize on its own, and the txid — the digest
+ * every signature is made over — is `SHA-256(Transaction.raw)`. Verifying a
+ * transaction we did not fetch from a node (say, a signed blob posted to a server)
+ * means re-serializing `raw_data` ourselves.
+ *
+ * The imports inside Tron.proto are written relative to the project root, so paths
+ * resolve from `ROOT` rather than from the importing file.
+ */
+// `keepCase` matters: proto-loader decodes to snake_case field names, and
+// protobuf.js would otherwise expect camelCase and silently drop what it can't
+// match (e.g. `type_url`), producing a valid-looking but wrong serialization.
+const root = new protobuf.Root();
+root.resolvePath = (_origin: string, target: string): string => path.resolve(ROOT, target);
+root.loadSync(path.resolve(ROOT, 'src/proto/Tron.proto'), { keepCase: true });
+
+/** protobuf.js message type for `Transaction.raw`. */
+export const TransactionRawType = root.lookupType('protocol.Transaction.raw');
