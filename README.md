@@ -330,9 +330,10 @@ at `0x02000016` (`msg(32) ‖ sig(666, zero-padded) ‖ pk(896)`).
 
 - **Sizes.** A PQ public key is 896 B and a signature 617–667 B, versus 33 B / 65 B for
   ECDSA. PQ transactions are ~1.5 KB larger and consume correspondingly more bandwidth.
-- **The account must exist on-chain.** java-tron checks that the signer's address is in the
-  account's permission *before* verifying the signature, so send a PQ address some TRX to
-  activate it before its first outgoing transaction.
+- **Fund a PQ address before its first send.** A PQ-derived address is an ordinary TRON
+  account and needs no special activation step, but — like any address — it must receive TRX
+  before it can send: an unfunded one passes signature verification and then fails contract
+  validation with `account does not exist`.
 - **Back up `privateKey`, not the seed.** Falcon key generation is FFT-based and not
   bit-stable across implementations, so the same seed yields a different keypair — and a
   different address — under java-tron/BouncyCastle. TIP-899 §8 gives the same warning.
