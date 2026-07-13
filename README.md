@@ -210,9 +210,141 @@ const ext = await client.createTransaction(from, to, '1.5'); // unsigned
 const res = await client.signAndBroadcast(ext, privateKey);  // sign + broadcast
 ```
 
+`privateKey` also accepts a post-quantum keypair — see
+[Post-quantum signatures](#post-quantum-signatures-tip-899).
+
 > The node-built `raw_data` is re-broadcast verbatim and the node-computed
 > `txid` is what gets signed, so the signature matches `java-tron`'s exact
 > serialization (verified by a successful testnet broadcast in the test suite).
+
+---
+
+## Post-quantum signatures (TIP-899)
+
+TRON's [TIP-899](https://github.com/tronprotocol/tips/issues/899) adds post-quantum
+signatures alongside ECDSA. This library implements **FN-DSA-512** (Falcon-512), which is
+live on Nile today (`ALLOW_FN_DSA_512`, proposal 1000).
+
+**ECDSA is unaffected.** A hex private key behaves exactly as before — same functions, same
+signatures, same call-sites. PQ is an additional key type, not a replacement.
+
+```ts
+import { generateFalconKey } from 'tron-grpc';
+
+const key = generateFalconKey();
+// { privateKey: '…', publicKey: '…', address: 'T…' }  ← an ordinary T-address
+```
+
+Pass the keypair anywhere a private key goes; the signer is chosen by key type:
+
+```ts
+// ECDSA — unchanged
+await client.sendTrx({ to, amount: '1.5', privateKey: '0xabc…' });
+
+// Post-quantum — same call, same shape
+await client.sendTrx({ to, amount: '1.5', privateKey: key });
+```
+
+A PQ transaction is an ordinary `Transaction`: `raw_data` and `txid` are computed
+identically, and the signature goes into the new `pq_auth_sig` field instead of
+`signature[]`. Broadcasting is unchanged.
+
+### Networks: Nile only, for now
+
+FN-DSA-512 is live on **Nile**. It is **not enabled on mainnet** — a mainnet node would
+reject a PQ signature. The client enforces this for you: signing with a PQ key checks the
+chain's activation flags first and throws rather than broadcasting a transaction that
+cannot succeed.
+
+```ts
+await client.sendTrx({ to, amount: '1.5', privateKey: falconKey }); // on mainnet:
+// Error: Refusing to sign: FN-DSA-512 (TIP-899) is not active on this network…
+```
+
+The check only runs on the PQ path — ECDSA signing issues no extra call and is completely
+unaffected. Query it directly with:
+
+```ts
+const { fnDsa512, mlDsa44 } = await client.getPqCapabilities();
+```
+
+Once mainnet activates the proposal, PQ keys start working there with no code change.
+
+### Signing messages
+
+`signMessage` on a PQ signer returns a hex string, exactly like `signMessageV2` — so
+call-sites don't change. Because Falcon has no `ecrecover`, the public key has to travel
+with the signature, so the string is an *envelope* (magic `TPQ1` + scheme + public key +
+signature) rather than a bare signature:
+
+```ts
+import { getSigner, signMessagePQ, verifyMessagePQ, isPqEnvelope } from 'tron-grpc';
+
+const envelope = getSigner(key).signMessage('login nonce 42');   // or signMessagePQ(...)
+const signer = verifyMessagePQ('login nonce 42', envelope);      // → 'T…', throws if invalid
+
+if (signer !== expectedAddress) throw new Error('wrong signer');
+```
+
+`verifyMessagePQ` derives the address *from the envelope's own public key*, so — as with
+`verifyMessageV2` — a valid signature only tells you the envelope is self-consistent.
+Always compare the returned address against the one you expect. The envelope format is a
+convention of this library: TIP-899 standardizes the on-chain fields only, and
+`isPqEnvelope` tells a PQ envelope apart from an ECDSA signature.
+
+### Verifying transactions
+
+`verifyTransaction` is a single entry point for both algorithms: it looks at which signature
+fields a transaction carries (`signature[]` for ECDSA, `pq_auth_sig[]` for PQ) and verifies
+each with the matching one. They are not mutually exclusive — a TIP-899 multi-sig account can
+be authorized by a mix, and every signer is reported.
+
+```ts
+import { verifyTransaction, computeTxid } from 'tron-grpc';
+
+const { txid, valid, signers } = verifyTransaction(tx);
+// signers: [{ address: 'T…', keyType: 'ECDSA', valid: true },
+//           { address: 'T…', keyType: 'FALCON', scheme: 'FN_DSA_512', valid: true }]
+
+// or fetch and verify in one step
+const result = await client.verifyTransactionById(txid);
+```
+
+The txid is recomputed from `raw_data` (`SHA-256`) unless you pass one, so a signature that
+doesn't match the transaction it's attached to is caught.
+
+> **This is a cryptographic check, not an authorization check.** A valid signature proves
+> the key holder signed *this exact transaction* — not that the key may move the account's
+> funds. To authorize, compare the reported signers against the account's `Permission` keys
+> and threshold. Only a node can settle that, since it depends on account state.
+
+For messages, `verifyMessage` (ECDSA) and `verifyMessagePQ` (PQ) each return the signer's
+address, and `verifySignedMessage` accepts either and dispatches on the envelope.
+
+### On-chain verification from a contract
+
+`encodeVerifyFnDsa512Input` builds the 1594-byte input for the `VerifyFnDsa512` precompile
+at `0x02000016` (`msg(32) ‖ sig(666, zero-padded) ‖ pk(896)`).
+
+### Notes and limits
+
+- **Sizes.** A PQ public key is 896 B and a signature 617–667 B, versus 33 B / 65 B for
+  ECDSA. PQ transactions are ~1.5 KB larger and consume correspondingly more bandwidth.
+- **The account must exist on-chain.** java-tron checks that the signer's address is in the
+  account's permission *before* verifying the signature, so send a PQ address some TRX to
+  activate it before its first outgoing transaction.
+- **Back up `privateKey`, not the seed.** Falcon key generation is FFT-based and not
+  bit-stable across implementations, so the same seed yields a different keypair — and a
+  different address — under java-tron/BouncyCastle. TIP-899 §8 gives the same warning.
+- **Interoperability is verified**, not assumed: this library's signatures are checked
+  against the 100 official Falcon-512 KAT vectors that BouncyCastle (which java-tron uses)
+  is tested against, and a Nile node derives the identical address from the public key we
+  put in `pq_auth_sig`.
+- **Mainnet is unaffected.** An ECDSA transaction serializes to byte-identical wire output
+  under the pre-TIP-899 protobuf and the new one (`pq_auth_sig` is a repeated field: when
+  empty, it emits nothing), so mainnet nodes see exactly what they saw before.
+- **ML-DSA-44** (proposal 1001) is not implemented; it is not yet enabled on Nile. The
+  `PQScheme` enum and `pq_auth_sig` decoding already account for it.
 
 ---
 

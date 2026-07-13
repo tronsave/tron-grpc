@@ -1,19 +1,69 @@
 import { TronClientAccounts } from './accounts';
-import { decodeReturnMessage, type Raw } from './helpers';
+import { decodeReturnMessage, parsePqCapabilities, type Raw } from './helpers';
 import { toAddressBytes, toBase58Address } from '../utils/address';
 import { hexToBytesSafe } from '../utils/hex';
 import { trxToSun, type DecimalLike } from '../utils/units';
-import { privateKeyToAddress, signTransactionId } from '../utils/crypto';
+import { getSigner } from '../utils/signer';
+import { verifyTransaction, type TransactionVerification } from '../utils/verify';
 import { bytesToHexField, decodeTransaction, decodeTransactionInfo } from '../codecs/decode';
-import type { BroadcastResult, SendTrxParams, TransactionInfoResult, TransactionResult } from '../types';
+import type {
+    BroadcastResult,
+    SendTrxParams,
+    SigningKey,
+    TransactionInfoResult,
+    TransactionResult,
+} from '../types';
 
 /** Transaction reads + the create -> sign -> broadcast flow. */
 export class TronClientTransactions extends TronClientAccounts {
+    /** Latched once FN-DSA-512 is seen active, so the check costs one RPC at most. */
+    private fnDsa512Enabled = false;
+
+    /**
+     * Refuse to sign with a post-quantum key on a chain that would reject it.
+     *
+     * TIP-899 is active on Nile but not on mainnet, where a node either ignores
+     * `pq_auth_sig` as an unknown field and rejects the transaction as unsigned,
+     * or rejects it outright. Failing here — before the broadcast — turns that
+     * into an actionable error.
+     *
+     * Only the PQ path pays for this; ECDSA signing issues no extra call. The
+     * result is cached only when enabled, so a client that outlives the mainnet
+     * activation vote still picks it up.
+     */
+    private async assertFnDsa512Enabled(): Promise<void> {
+        if (this.fnDsa512Enabled) return;
+        const { fnDsa512 } = parsePqCapabilities(await this.query('GetChainParameters', {}));
+        if (!fnDsa512) {
+            throw new Error(
+                'Refusing to sign: FN-DSA-512 (TIP-899) is not active on this network, so a ' +
+                    'post-quantum signature would be rejected. It is currently enabled on Nile only. ' +
+                    'Use an ECDSA private key here, or check client.getPqCapabilities() first.'
+            );
+        }
+        this.fnDsa512Enabled = true;
+    }
+
     /** Get a transaction by id (hex). */
     async getTransactionById(txid: string): Promise<TransactionResult> {
         const clean = txid.replace(/^0x/i, '');
         const res = await this.request<Raw>('GetTransactionById', { value: hexToBytesSafe(clean) });
         return decodeTransaction(res, clean.toLowerCase());
+    }
+
+    /**
+     * Fetch a transaction and verify its signatures locally — ECDSA, post-quantum,
+     * or a mix of both (TIP-899).
+     *
+     * Reports each signer and whether its signature is valid for the transaction's
+     * txid. This is a cryptographic check, not an authorization one: it does not
+     * verify that those signers satisfy the account's `Permission` threshold.
+     */
+    async verifyTransactionById(txid: string): Promise<TransactionVerification> {
+        const clean = txid.replace(/^0x/i, '');
+        const res = await this.request<Raw>('GetTransactionById', { value: hexToBytesSafe(clean) });
+        if (!res.raw_data) throw new Error(`No transaction found for id ${clean}`);
+        return verifyTransaction(res, clean);
     }
 
     /** Get a transaction receipt by id (hex). */
@@ -76,13 +126,19 @@ export class TronClientTransactions extends TronClientAccounts {
      * Attach a signature to a node-built TransactionExtention and broadcast it.
      * The node-built `raw_data` is re-broadcast verbatim, so the signed `txid`
      * stays valid (matches java-tron's serialization exactly).
+     *
+     * `key` may be an ECDSA private key (hex) or a post-quantum keypair; the
+     * signer writes to `signature` or `pq_auth_sig` accordingly. Signing an
+     * already-signed transaction appends, which is how a mixed ECDSA + PQ
+     * multi-sig transaction accumulates weight (TIP-899).
      */
-    async signAndBroadcast(extention: Raw, privateKey: string): Promise<BroadcastResult> {
+    async signAndBroadcast(extention: Raw, key: SigningKey): Promise<BroadcastResult> {
         const transaction = extention.transaction as Raw | undefined;
         if (!transaction) throw new Error('TransactionExtention has no transaction to sign');
+        const signer = getSigner(key);
+        if (signer.keyType === 'FALCON') await this.assertFnDsa512Enabled();
         const txid = bytesToHexField(extention.txid);
-        const signature = signTransactionId(txid, privateKey);
-        transaction.signature = [hexToBytesSafe(signature)];
+        signer.signTransaction(transaction, txid);
 
         const ret = await this.request<Raw>('BroadcastTransaction', transaction);
         const success = ret.result === true;
@@ -100,7 +156,11 @@ export class TronClientTransactions extends TronClientAccounts {
      * `amount` is in TRX (decimal). Returns the txid and broadcast outcome.
      */
     async sendTrx(params: SendTrxParams): Promise<BroadcastResult> {
-        const from = params.from ? toBase58Address(params.from) : privateKeyToAddress(params.privateKey);
+        const signer = getSigner(params.privateKey);
+        // Check the network before asking it to build anything, so an unusable PQ key
+        // fails with "PQ not active here" rather than a confusing node-side error.
+        if (signer.keyType === 'FALCON') await this.assertFnDsa512Enabled();
+        const from = params.from ? toBase58Address(params.from) : signer.address;
         const to = toBase58Address(params.to);
         const extention = await this.createTransaction(from, to, params.amount);
         return this.signAndBroadcast(extention, params.privateKey);

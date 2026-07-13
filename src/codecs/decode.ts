@@ -1,6 +1,7 @@
 import { bytesToHex } from '../utils/hex';
 import { bytesToBase58Address, decodeAddress, TRON_ADDRESS_PREFIX } from '../utils/address';
 import { sunToTrx } from '../utils/units';
+import { pqPublicKeyToAddress } from '../utils/pq';
 import type {
     AccountResources,
     BlockSummary,
@@ -315,12 +316,22 @@ export const decodeTransaction = (res: Raw, txid: string): TransactionResult => 
     const rawData = (res.raw_data ?? {}) as Raw;
     const contracts = Array.isArray(rawData.contract) ? (rawData.contract as Raw[]) : [];
     const signature = Array.isArray(res.signature) ? res.signature : [];
+    const pqAuthSig = Array.isArray(res.pq_auth_sig) ? (res.pq_auth_sig as Raw[]) : [];
     const ret = Array.isArray(res.ret) ? (res.ret as Raw[]) : [];
     const found = contracts.length > 0;
     return {
         txid,
         contractType: contracts[0]?.type as string | undefined,
         signatures: signature.map(bytesToHexField),
+        pqSignatures: pqAuthSig.map(sig => {
+            const publicKey = bytesToHexField(sig.public_key);
+            return {
+                scheme: String(sig.scheme ?? ''),
+                publicKey,
+                signature: bytesToHexField(sig.signature),
+                address: publicKey ? pqPublicKeyToAddress(publicKey) : '',
+            };
+        }),
         ret: ret.map(r => String(r.contractRet ?? '')),
         rawData: normalizeDeep(rawData) as Record<string, unknown>,
         raw: normalizeDeep(res) as Record<string, unknown>,
