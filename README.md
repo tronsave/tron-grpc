@@ -37,10 +37,13 @@ Questions or feedback are welcome
   - [Client](#client)
   - [Utilities](#utilities)
 - [Sending TRX](#sending-trx)
+- [Post-quantum signatures (TIP-899)](#post-quantum-signatures-tip-899)
 - [TRC20 balances](#trc20-balances)
 - [Environment variables](#environment-variables)
 - [Running the tests](#running-the-tests)
+- [Updating the protos](#updating-the-protos)
 - [Security](#security)
+- [Project structure](#project-structure)
 - [Design: why gRPC + proto-loader](#design-why-grpc--proto-loader)
 - [Implemented methods](#implemented-methods)
 - [Assumptions](#assumptions)
@@ -406,9 +409,9 @@ to supply secrets is via the environment, never in code:
 | --- | --- | --- |
 | `TRON_PRO_API_KEY` | client + tests | TronGrid API key (raises rate limits), sent as the `TRON-PRO-API-KEY` gRPC metadata header. |
 | `TRON_GRPC_LOG_LEVEL` | client | Diagnostic log level: `silent`, `error`, `warn`, `info`, or `debug` (default `silent`). |
-| `TRON_PRIVATE_KEY` | broadcast test | **Testnet** private key (hex, 64 chars). |
-| `TRON_TO` | broadcast test | Recipient address for the test transfer. |
-| `TRON_NETWORK` | broadcast test | `nile` or `shasta` (the test refuses `mainnet`). |
+| `TRON_PRIVATE_KEY` | `test:nile`, private `test.ts` | Funded **testnet** private key (hex, 64 chars). |
+| `TRON_TO` | private `test.ts` | Recipient address for the test transfer (`test:nile` generates its own). |
+| `TRON_NETWORK` | `test:nile`, `test:live`, private `test.ts` | `nile` or `shasta` for signing tests (they refuse `mainnet`); `test:live` defaults to `mainnet`. |
 
 ---
 
@@ -429,8 +432,8 @@ npm test            # tsx test.ts — private broadcast suite (gitignored, see b
 mainnet transactions and asserts `computeTxid` reproduces the node's txid, so a
 proto sync that breaks encoding fails loudly.
 
-The suite makes **real** calls (nothing is hardcoded to pass) and includes four
-Tronscan cross-checks — for the same data, it reads via this library (gRPC) and
+The private `test.ts` suite (not in the repo) makes **real** calls (nothing is
+hardcoded to pass) and includes four Tronscan cross-checks — for the same data, it reads via this library (gRPC) and
 via Tronscan's public REST API and asserts the **values** are equal:
 
 1. **TRX balance** of an example address — gRPC `getAccount` vs `/api/account`.
@@ -441,6 +444,33 @@ via Tronscan's public REST API and asserts the **values** are equal:
 Cross-checks run on **mainnet** (Tronscan's public API is mainnet). Signing +
 broadcast runs on the **Nile testnet** only — it signs a 1-sun transfer, asserts
 the node accepts it, and confirms it on-chain. It never spends mainnet TRX.
+
+`test:nile` is the committed equivalent for signing: every transaction it sends is
+confirmed on-chain, then fetched back and checked — `computeTxid` must reproduce the
+node's txid and every signature must verify. Get testnet TRX for the key in `.env`
+from the [Nile faucet](https://nileex.io/join/getJoinPage); one run spends ~120 TRX
+(the multi-sig case pays Nile's 100 TRX permission-update fee, and is skipped below
+130 TRX).
+
+---
+
+## Updating the protos
+
+The `.proto` files are vendored from
+[tronprotocol/protocol](https://github.com/tronprotocol/protocol) and the TypeScript
+bindings are generated with `protoc` (`brew install protobuf`):
+
+```bash
+npm run update-proto       # sync-proto (fetch master) + gen-proto (regenerate .ts)
+npm run sync-proto v4.8.2  # or pin a tag / branch / commit
+```
+
+The sync rewrites imports, vendors `google.protobuf.Any`, and strips HTTP-gateway and
+codegen options so the files compile without googleapis. Until TIP-899 is merged
+upstream it also re-injects the post-quantum definitions (`PQScheme`, `PQAuthSig`,
+`pq_auth_sig`, `pq_scheme`) from the reference implementation, and fails loudly if
+upstream changed shape around them. Run `npm run test:live` afterwards: it re-encodes
+real mainnet transactions and catches any proto change that breaks txid computation.
 
 ---
 
@@ -474,13 +504,22 @@ src/
     shielded.ts           zk-SNARK (shielded) RPCs
     index.ts              composes the chain → `TronGrpcClient` + `fromNetwork`
   codecs/                 abi.ts (encode/decode), decode.ts (response → readable)
-  utils/                  address.ts, units.ts, crypto.ts, hex.ts
+  utils/
+    address.ts            base58 / hex addresses (checksum-validated)
+    units.ts, hex.ts      TRX <-> sun, hex helpers
+    crypto.ts             secp256k1 (ECDSA) keys, signing, recovery
+    pq.ts                 TIP-899 post-quantum: FN-DSA-512 + ML-DSA-44, envelopes, precompiles
+    signer.ts             Signer strategies chosen by key type (ECDSA / Falcon / ML-DSA)
+    verify.ts             computeTxid + verifyTransaction (ECDSA + PQ)
   proto/                  vendored TRON .proto + generated .ts
+  logger.ts               opt-in diagnostic logging
   network.ts              TRON_NETWORKS
   protoLoader.ts          single proto-loader package definition
   types.ts                public typed shapes
   index.ts                public barrel
 index.ts                  package root barrel (re-exports src + compat aliases)
+scripts/sync-proto.ts     vendors upstream protos (see Updating the protos)
+test/                     unit (offline), live (read-only mainnet), nile (signed testnet)
 ```
 
 The client is one flat class (`client.getAccount(...)`, `client.freezeBalanceV2(...)`)
