@@ -20,7 +20,14 @@ import * as protobuf from 'protobufjs';
 import { TransactionRawType } from '../protoLoader';
 import { bytesToHex, stripHexPrefix, hexToBytesSafe } from './hex';
 import { recoverAddress } from './crypto';
-import { PQScheme, pqPublicKeyToAddress, verifyDigestFalcon, FALCON_PUBLIC_KEY_BYTES } from './pq';
+import {
+    PQScheme,
+    pqPublicKeyToAddress,
+    verifyDigestPQ,
+    FALCON_PUBLIC_KEY_BYTES,
+    ML_DSA_44_PUBLIC_KEY_BYTES,
+    type PQSchemeValue,
+} from './pq';
 import type { KeyType } from '../types';
 
 /** A loose proto-loader `Transaction` object. */
@@ -116,6 +123,15 @@ export const computeTxid = (rawData: Record<string, unknown>): string => {
     return bytesToHex(sha256(bytes));
 };
 
+/**
+ * Per-scheme verification facts, keyed by proto enum name. A Map, not an object
+ * literal: the key comes from untrusted transaction data.
+ */
+const PQ_SCHEMES = new Map<string, { scheme: PQSchemeValue; keyType: KeyType; label: string; publicKeyBytes: number }>([
+    ['FN_DSA_512', { scheme: PQScheme.FN_DSA_512, keyType: 'FALCON', label: 'FN-DSA-512', publicKeyBytes: FALCON_PUBLIC_KEY_BYTES }],
+    ['ML_DSA_44', { scheme: PQScheme.ML_DSA_44, keyType: 'ML_DSA_44', label: 'ML-DSA-44', publicKeyBytes: ML_DSA_44_PUBLIC_KEY_BYTES }],
+]);
+
 /** proto-loader may hand back an enum as its name (`'FN_DSA_512'`) or its number (`1`). */
 const schemeName = (scheme: unknown): string => {
     if (typeof scheme === 'string') return scheme;
@@ -170,9 +186,10 @@ export const verifyTransaction = (
         const signature = toBytes(auth.signature);
         const address = publicKey?.length ? pqPublicKeyToAddress(publicKey) : '';
 
-        if (scheme !== 'FN_DSA_512') {
-            // Unknown or not-yet-supported scheme (e.g. ML_DSA_44): reject rather
-            // than silently treating an unverified signature as valid.
+        const spec = PQ_SCHEMES.get(scheme);
+        if (!spec) {
+            // Unknown scheme: reject rather than silently treating an unverified
+            // signature as valid.
             signers.push({
                 address,
                 keyType: 'FALCON',
@@ -182,23 +199,23 @@ export const verifyTransaction = (
             });
             continue;
         }
-        if (publicKey.length !== FALCON_PUBLIC_KEY_BYTES) {
+        if (publicKey.length !== spec.publicKeyBytes) {
             signers.push({
                 address,
-                keyType: 'FALCON',
+                keyType: spec.keyType,
                 scheme,
                 valid: false,
-                error: `Invalid FN-DSA-512 public key length: ${publicKey.length}`,
+                error: `Invalid ${spec.label} public key length: ${publicKey.length}`,
             });
             continue;
         }
-        const valid = verifyDigestFalcon(digest, signature, publicKey);
+        const valid = verifyDigestPQ(spec.scheme, digest, signature, publicKey);
         signers.push({
             address,
-            keyType: 'FALCON',
+            keyType: spec.keyType,
             scheme,
             valid,
-            ...(valid ? {} : { error: 'Invalid FN-DSA-512 signature' }),
+            ...(valid ? {} : { error: `Invalid ${spec.label} signature` }),
         });
     }
 

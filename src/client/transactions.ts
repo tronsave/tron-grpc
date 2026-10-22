@@ -8,6 +8,7 @@ import { verifyTransaction, type TransactionVerification } from '../utils/verify
 import { bytesToHexField, decodeTransaction, decodeTransactionInfo } from '../codecs/decode';
 import type {
     BroadcastResult,
+    KeyType,
     SendTrxParams,
     SigningKey,
     TransactionInfoResult,
@@ -16,32 +17,34 @@ import type {
 
 /** Transaction reads + the create -> sign -> broadcast flow. */
 export class TronClientTransactions extends TronClientAccounts {
-    /** Latched once FN-DSA-512 is seen active, so the check costs one RPC at most. */
-    private fnDsa512Enabled = false;
+    /** PQ schemes seen active, latched so each check costs one RPC at most. */
+    private readonly pqEnabled = new Set<KeyType>();
 
     /**
      * Refuse to sign with a post-quantum key on a chain that would reject it.
      *
-     * TIP-899 is active on Nile but not on mainnet, where a node either ignores
-     * `pq_auth_sig` as an unknown field and rejects the transaction as unsigned,
-     * or rejects it outright. Failing here — before the broadcast — turns that
-     * into an actionable error.
+     * Each TIP-899 scheme is activated by its own proposal (`ALLOW_FN_DSA_512`,
+     * `ALLOW_ML_DSA_44`). Until then a node either ignores `pq_auth_sig` as an
+     * unknown field and rejects the transaction as unsigned, or rejects it
+     * outright. Failing here — before the broadcast — turns that into an
+     * actionable error.
      *
      * Only the PQ path pays for this; ECDSA signing issues no extra call. The
-     * result is cached only when enabled, so a client that outlives the mainnet
+     * result is cached only when enabled, so a client that outlives an
      * activation vote still picks it up.
      */
-    private async assertFnDsa512Enabled(): Promise<void> {
-        if (this.fnDsa512Enabled) return;
-        const { fnDsa512 } = parsePqCapabilities(await this.query('GetChainParameters', {}));
-        if (!fnDsa512) {
+    private async assertPqSchemeEnabled(keyType: KeyType): Promise<void> {
+        if (keyType === 'ECDSA' || this.pqEnabled.has(keyType)) return;
+        const caps = parsePqCapabilities(await this.query('GetChainParameters', {}));
+        const [enabled, name] = keyType === 'ML_DSA_44' ? [caps.mlDsa44, 'ML-DSA-44'] : [caps.fnDsa512, 'FN-DSA-512'];
+        if (!enabled) {
             throw new Error(
-                'Refusing to sign: FN-DSA-512 (TIP-899) is not active on this network, so a ' +
-                    'post-quantum signature would be rejected. It is currently enabled on Nile only. ' +
+                `Refusing to sign: ${name} (TIP-899) is not active on this network, so a ` +
+                    'post-quantum signature would be rejected. ' +
                     'Use an ECDSA private key here, or check client.getPqCapabilities() first.'
             );
         }
-        this.fnDsa512Enabled = true;
+        this.pqEnabled.add(keyType);
     }
 
     /** Get a transaction by id (hex). */
@@ -136,7 +139,7 @@ export class TronClientTransactions extends TronClientAccounts {
         const transaction = extention.transaction as Raw | undefined;
         if (!transaction) throw new Error('TransactionExtention has no transaction to sign');
         const signer = getSigner(key);
-        if (signer.keyType === 'FALCON') await this.assertFnDsa512Enabled();
+        await this.assertPqSchemeEnabled(signer.keyType);
         const txid = bytesToHexField(extention.txid);
         signer.signTransaction(transaction, txid);
 
@@ -159,7 +162,7 @@ export class TronClientTransactions extends TronClientAccounts {
         const signer = getSigner(params.privateKey);
         // Check the network before asking it to build anything, so an unusable PQ key
         // fails with "PQ not active here" rather than a confusing node-side error.
-        if (signer.keyType === 'FALCON') await this.assertFnDsa512Enabled();
+        await this.assertPqSchemeEnabled(signer.keyType);
         const from = params.from ? toBase58Address(params.from) : signer.address;
         const to = toBase58Address(params.to);
         const extention = await this.createTransaction(from, to, params.amount);

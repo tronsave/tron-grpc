@@ -3,8 +3,9 @@
  *
  * The point of this layer is that call-sites don't change: `signAndBroadcast`
  * and `sendTrx` take a key, ask {@link getSigner} for the matching strategy, and
- * hand it the transaction. Whether that key is a secp256k1 private key or an
- * FN-DSA-512 keypair is the signer's problem, not the caller's.
+ * hand it the transaction. Whether that key is a secp256k1 private key, an
+ * FN-DSA-512 keypair or an ML-DSA-44 keypair is the signer's problem, not the
+ * caller's.
  *
  * ECDSA keeps its existing behaviour verbatim — {@link EcdsaSigner} is a wrapper
  * around the functions in `./crypto`, not a reimplementation.
@@ -12,14 +13,21 @@
 import { privateKeyToAddress, signMessage, signTransactionId } from './crypto';
 import {
     PQScheme,
+    FALCON_PRIVATE_KEY_BYTES,
+    ML_DSA_44_PRIVATE_KEY_BYTES,
     falconPrivateKeyToPublicKey,
     falconPublicKeyToAddress,
     falconPublicKeyToBytes,
+    mlDsa44PrivateKeyToPublicKey,
+    mlDsa44PublicKeyToAddress,
+    mlDsa44PublicKeyToBytes,
+    signMessageMlDsa44,
     signMessagePQ,
     signTransactionIdFalcon,
+    signTransactionIdMlDsa44,
 } from './pq';
-import { hexToBytesSafe } from './hex';
-import type { SigningKey, TronPqKey } from '../types';
+import { hexToBytesSafe, stripHexPrefix } from './hex';
+import type { KeyType, SigningKey, TronPqKey } from '../types';
 
 /** A loose proto-loader transaction object (`Transaction`). */
 type TransactionLike = Record<string, unknown>;
@@ -33,12 +41,12 @@ const append = (transaction: TransactionLike, field: string, value: unknown): vo
 /** Signs messages and transactions with one account's key. */
 export interface Signer {
     /** Which algorithm this signer implements. */
-    readonly keyType: 'ECDSA' | 'FALCON';
+    readonly keyType: KeyType;
     /** Base58 "T..." address of the signing key. */
     readonly address: string;
     /**
      * Sign a plain-text message.
-     * ECDSA returns a hex signature; FN-DSA-512 returns a hex PQ envelope.
+     * ECDSA returns a hex signature; PQ schemes return a hex PQ envelope.
      */
     signMessage(message: string): string;
     /**
@@ -97,16 +105,60 @@ export class FalconSigner implements Signer {
     }
 }
 
+/** ML-DSA-44 (FIPS 204) — TIP-899 post-quantum signing. */
+export class MlDsa44Signer implements Signer {
+    readonly keyType = 'ML_DSA_44' as const;
+    readonly address: string;
+    private readonly privateKey: string;
+    private readonly publicKey: Uint8Array;
+
+    constructor(key: TronPqKey) {
+        this.privateKey = key.privateKey;
+        this.publicKey = mlDsa44PublicKeyToBytes(key.publicKey ?? mlDsa44PrivateKeyToPublicKey(key.privateKey));
+        this.address = mlDsa44PublicKeyToAddress(this.publicKey);
+    }
+
+    signMessage(message: string): string {
+        return signMessageMlDsa44(message, this.privateKey, this.publicKey);
+    }
+
+    signTransaction<T extends TransactionLike>(transaction: T, txid: string): T {
+        append(transaction, 'pq_auth_sig', {
+            scheme: PQScheme.ML_DSA_44,
+            public_key: this.publicKey,
+            signature: signTransactionIdMlDsa44(txid, this.privateKey),
+        });
+        return transaction;
+    }
+}
+
 /** True when `key` is a post-quantum keypair rather than an ECDSA private key. */
 export const isPqKey = (key: SigningKey): key is TronPqKey =>
     typeof key === 'object' && key !== null && 'privateKey' in key;
 
 /**
- * Pick the signing strategy for a key: a hex string is an ECDSA private key (as
- * it has always been); an object is a PQ keypair.
+ * Which PQ scheme a keypair belongs to: its explicit `keyType`, else inferred
+ * from the private key's length — the two schemes' keys never collide.
  */
-export const getSigner = (key: SigningKey): Signer =>
-    isPqKey(key) ? new FalconSigner(key) : new EcdsaSigner(key);
+export const pqKeyType = (key: TronPqKey): 'FALCON' | 'ML_DSA_44' => {
+    if (key.keyType) return key.keyType;
+    const bytes = stripHexPrefix(key.privateKey).length / 2;
+    if (bytes === FALCON_PRIVATE_KEY_BYTES) return 'FALCON';
+    if (bytes === ML_DSA_44_PRIVATE_KEY_BYTES) return 'ML_DSA_44';
+    throw new Error(
+        `Cannot infer PQ scheme from a ${bytes}-byte private key: expected ` +
+            `${FALCON_PRIVATE_KEY_BYTES} (FN-DSA-512) or ${ML_DSA_44_PRIVATE_KEY_BYTES} (ML-DSA-44)`
+    );
+};
+
+/**
+ * Pick the signing strategy for a key: a hex string is an ECDSA private key (as
+ * it has always been); an object is a PQ keypair of either scheme.
+ */
+export const getSigner = (key: SigningKey): Signer => {
+    if (!isPqKey(key)) return new EcdsaSigner(key);
+    return pqKeyType(key) === 'ML_DSA_44' ? new MlDsa44Signer(key) : new FalconSigner(key);
+};
 
 /** Base58 address of whichever key type was passed. */
 export const addressOf = (key: SigningKey): string => getSigner(key).address;

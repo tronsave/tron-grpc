@@ -2,6 +2,7 @@ import { TronClientContracts } from './contracts';
 import { sunString, type Raw } from './helpers';
 import { toAddressBytes } from '../utils/address';
 import type { DecimalLike } from '../utils/units';
+import type { PQSchemeValue } from '../utils/pq';
 import type { TronResource } from '../types';
 
 /** Staking (Stake 2.0), delegation, and resource queries. */
@@ -113,9 +114,19 @@ export class TronClientResources extends TronClientContracts {
         return this.query('GetDelegatedResourceAccountIndexV2', { value: toAddressBytes(address) });
     }
 
-    /** Max size (sun) an account can delegate for a resource type (0=bw,1=energy). */
-    async getCanDelegatedMaxSize(address: string, type: number): Promise<Raw> {
-        return this.query('GetCanDelegatedMaxSize', { owner_address: toAddressBytes(address), type });
+    /**
+     * Max size (sun) an account can delegate for a resource type (0=bw,1=energy).
+     *
+     * Pass `pqScheme` when the account signs with a post-quantum key: the
+     * BANDWIDTH estimate then reserves room for its much larger `PQAuthSig`
+     * (TIP-899). Nodes without TIP-899 ignore the field.
+     */
+    async getCanDelegatedMaxSize(address: string, type: number, pqScheme?: PQSchemeValue): Promise<Raw> {
+        return this.query('GetCanDelegatedMaxSize', {
+            owner_address: toAddressBytes(address),
+            type,
+            ...(pqScheme ? { pq_scheme: pqScheme } : {}),
+        });
     }
 
     /** Remaining number of allowed unstake operations for an account. */
