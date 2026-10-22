@@ -38,10 +38,15 @@ const RATE_LIMIT_RETRY = { maxRetries: 5, baseDelayMs: 500, maxDelayMs: 8000 };
  * True for a rejection by rate limiting. Such a request never reached a node, so
  * retrying is safe for every method — including `BroadcastTransaction`, where
  * re-sending the same signed transaction cannot double-spend anyway.
+ *
+ * grpc-js also reports an over-size response as `RESOURCE_EXHAUSTED` ("Received
+ * message larger than max"). That is deterministic, so it is not retried.
  */
-const isRateLimited = (err: grpc.ServiceError): boolean =>
-    err.code === grpc.status.RESOURCE_EXHAUSTED ||
-    (err.code === grpc.status.UNAVAILABLE && /\b429\b/.test(err.details ?? err.message));
+const isRateLimited = (err: grpc.ServiceError): boolean => {
+    const details = err.details ?? err.message ?? '';
+    if (err.code === grpc.status.RESOURCE_EXHAUSTED) return !/larger than max/i.test(details);
+    return err.code === grpc.status.UNAVAILABLE && /\b429\b/.test(details);
+};
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -84,6 +89,9 @@ export class TronClientCore {
         'grpc.initial_reconnect_backoff_ms': 100,
         'grpc.max_reconnect_backoff_ms': 10000,
         'grpc.enable_retries': 1,
+        // Range reads (GetBlockByLatestNum2 / GetBlockByLimitNext2) routinely exceed
+        // grpc-js's 4 MiB default: 60 mainnet blocks are ~8 MB.
+        'grpc.max_receive_message_length': 64 * 1024 * 1024,
         'grpc.service_config': JSON.stringify({
             methodConfig: [
                 {
@@ -108,12 +116,14 @@ export class TronClientCore {
         const merged: grpc.ClientOptions = { ...TronClientCore.DEFAULT_OPTIONS, ...options.grpcOptions };
 
         if (this.headers) {
-            const headers = this.headers;
+            const headers = Object.entries(this.headers);
+            // Append: interceptors passed via `grpcOptions` keep working.
             merged.interceptors = [
+                ...(merged.interceptors ?? []),
                 (opts, nextCall) =>
                     new grpc.InterceptingCall(nextCall(opts), {
                         start: (metadata, listener, next) => {
-                            for (const [key, value] of Object.entries(headers)) metadata.add(key, value);
+                            for (const [key, value] of headers) metadata.add(key, value);
                             next(metadata, listener);
                         },
                     }),
