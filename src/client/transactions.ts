@@ -1,9 +1,9 @@
 import { TronClientAccounts } from './accounts';
-import { decodeReturnMessage, parsePqCapabilities, type Raw } from './helpers';
+import { decodeReturnMessage, parsePqCapabilities, type PqCapabilities, type Raw } from './helpers';
 import { toAddressBytes, toBase58Address } from '../utils/address';
 import { hexToBytesSafe } from '../utils/hex';
 import { trxToSun, type DecimalLike } from '../utils/units';
-import { getSigner } from '../utils/signer';
+import { getSigner, type Signer } from '../utils/signer';
 import { verifyTransaction, type TransactionVerification } from '../utils/verify';
 import { bytesToHexField, decodeTransaction, decodeTransactionInfo } from '../codecs/decode';
 import type {
@@ -15,10 +15,18 @@ import type {
     TransactionResult,
 } from '../types';
 
+const transactionOf = (extention: Raw): Raw => {
+    const transaction = extention.transaction as Raw | undefined;
+    if (!transaction) throw new Error('TransactionExtention has no transaction to sign');
+    return transaction;
+};
+
 /** Transaction reads + the create -> sign -> broadcast flow. */
 export class TronClientTransactions extends TronClientAccounts {
     /** PQ schemes seen active, latched so each check costs one RPC at most. */
     private readonly pqEnabled = new Set<KeyType>();
+    /** In-flight capability lookup, shared so concurrent PQ sends issue one RPC. */
+    private pqCapsInFlight?: Promise<PqCapabilities>;
 
     /**
      * Refuse to sign with a post-quantum key on a chain that would reject it.
@@ -35,7 +43,12 @@ export class TronClientTransactions extends TronClientAccounts {
      */
     private async assertPqSchemeEnabled(keyType: KeyType): Promise<void> {
         if (keyType === 'ECDSA' || this.pqEnabled.has(keyType)) return;
-        const caps = parsePqCapabilities(await this.query('GetChainParameters', {}));
+        this.pqCapsInFlight ??= this.query<Raw>('GetChainParameters', {})
+            .then(parsePqCapabilities)
+            .finally(() => {
+                this.pqCapsInFlight = undefined;
+            });
+        const caps = await this.pqCapsInFlight;
         const [enabled, name] = keyType === 'ML_DSA_44' ? [caps.mlDsa44, 'ML-DSA-44'] : [caps.fnDsa512, 'FN-DSA-512'];
         if (!enabled) {
             throw new Error(
@@ -136,10 +149,14 @@ export class TronClientTransactions extends TronClientAccounts {
      * multi-sig transaction accumulates weight (TIP-899).
      */
     async signAndBroadcast(extention: Raw, key: SigningKey): Promise<BroadcastResult> {
-        const transaction = extention.transaction as Raw | undefined;
-        if (!transaction) throw new Error('TransactionExtention has no transaction to sign');
+        const transaction = transactionOf(extention);
         const signer = getSigner(key);
         await this.assertPqSchemeEnabled(signer.keyType);
+        return this.signWithAndBroadcast(transaction, extention, signer);
+    }
+
+    /** Sign with an already-built (and capability-checked) signer, then broadcast. */
+    private async signWithAndBroadcast(transaction: Raw, extention: Raw, signer: Signer): Promise<BroadcastResult> {
         const txid = bytesToHexField(extention.txid);
         signer.signTransaction(transaction, txid);
 
@@ -166,6 +183,8 @@ export class TronClientTransactions extends TronClientAccounts {
         const from = params.from ? toBase58Address(params.from) : signer.address;
         const to = toBase58Address(params.to);
         const extention = await this.createTransaction(from, to, params.amount);
-        return this.signAndBroadcast(extention, params.privateKey);
+        const transaction = transactionOf(extention);
+        // Reuse the signer: building one derives the key's public key/address.
+        return this.signWithAndBroadcast(transaction, extention, signer);
     }
 }

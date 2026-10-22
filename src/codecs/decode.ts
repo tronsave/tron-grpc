@@ -22,11 +22,13 @@ import type {
 /** A loose view of a proto-loader response object. */
 type Raw = Record<string, unknown>;
 
-const isBytes = (v: unknown): v is Uint8Array =>
-    v instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(v));
+// Node's Buffer is a Uint8Array subclass, so one instanceof covers both.
+const isBytes = (v: unknown): v is Uint8Array => v instanceof Uint8Array;
 
 /** proto-loader `bytes` field -> hex string ('' when absent/empty). */
 export const bytesToHexField = (v: unknown): string => (isBytes(v) ? bytesToHex(v) : typeof v === 'string' ? v : '');
+
+const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
 /** int64 field (string with longs:String) -> Number. */
 const toNumber = (v: unknown): number => (v == null ? 0 : Number(v));
@@ -41,18 +43,23 @@ const toIntString = (v: unknown): string => (v == null ? '0' : String(v));
  * so no raw Buffers ever reach the caller and addresses are human-readable.
  */
 export const normalizeDeep = (value: unknown): unknown => {
+    // Hot path when decoding blocks: most leaves are strings/numbers, so bail out
+    // on primitives before any instanceof / Array.isArray checks.
+    if (value === null || typeof value !== 'object') return value;
     if (isBytes(value)) {
         return value.length === 21 && value[0] === TRON_ADDRESS_PREFIX
             ? bytesToBase58Address(value)
             : bytesToHex(value);
     }
-    if (Array.isArray(value)) return value.map(normalizeDeep);
-    if (value && typeof value === 'object') {
-        const out: Raw = {};
-        for (const [k, v] of Object.entries(value as Raw)) out[k] = normalizeDeep(v);
+    if (Array.isArray(value)) {
+        const out = new Array<unknown>(value.length);
+        for (let i = 0; i < value.length; i++) out[i] = normalizeDeep(value[i]);
         return out;
     }
-    return value;
+    const obj = value as Raw;
+    const out: Raw = {};
+    for (const k of Object.keys(obj)) out[k] = normalizeDeep(obj[k]);
+    return out;
 };
 
 const decodeUtf8 = (v: unknown): string | undefined => {
@@ -79,8 +86,15 @@ export const decodeLogs = (v: unknown): TransactionLog[] => (Array.isArray(v) ? 
 export const decodeInternalTransactions = (v: unknown): Record<string, unknown>[] =>
     Array.isArray(v) ? (v.map(normalizeDeep) as Record<string, unknown>[]) : [];
 
-/** Decode one TransactionExtention from a BlockExtention into a full typed view. */
-const decodeBlockTransaction = (v: unknown): BlockTransaction => {
+/**
+ * Decode one TransactionExtention from a BlockExtention into a full typed view.
+ *
+ * `normalized` is this same extention already run through {@link normalizeDeep}
+ * (as part of the block's `raw`). `raw`, `rawData` and `internalTransactions`
+ * reuse its subtrees instead of normalizing each transaction three times — they
+ * are the same objects as under `BlockSummary.raw.transactions[i]`.
+ */
+const decodeBlockTransaction = (v: unknown, normalized: Raw): BlockTransaction => {
     const ext = (v ?? {}) as Raw;
     const tx = (ext.transaction ?? {}) as Raw;
     const rawData = (tx.raw_data ?? {}) as Raw;
@@ -95,9 +109,9 @@ const decodeBlockTransaction = (v: unknown): BlockTransaction => {
         energyUsed: toIntString(ext.energy_used),
         energyPenalty: toIntString(ext.energy_penalty),
         logs: decodeLogs(ext.logs),
-        internalTransactions: decodeInternalTransactions(ext.internal_transactions),
-        rawData: normalizeDeep(rawData) as Record<string, unknown>,
-        raw: normalizeDeep(ext) as Record<string, unknown>,
+        internalTransactions: asArray(normalized.internal_transactions) as Record<string, unknown>[],
+        rawData: ((normalized.transaction as Raw | undefined)?.raw_data ?? {}) as Record<string, unknown>,
+        raw: normalized,
     };
 };
 
@@ -111,6 +125,8 @@ export const decodeBlock = (res: Raw): BlockSummary => {
     const header = (res.block_header ?? {}) as Raw;
     const raw = (header.raw_data ?? {}) as Raw;
     const transactions = Array.isArray(res.transactions) ? res.transactions : [];
+    const normalized = normalizeDeep(res) as Raw;
+    const normalizedTxs = asArray(normalized.transactions) as Raw[];
     return {
         number: toNumber(raw.number),
         hash: bytesToHexField(res.blockid),
@@ -122,8 +138,8 @@ export const decodeBlock = (res: Raw): BlockSummary => {
         txCount: transactions.length,
         witnessSignature: bytesToHexField(header.witness_signature) || undefined,
         accountStateRoot: bytesToHexField(raw.accountStateRoot) || undefined,
-        transactions: transactions.map(decodeBlockTransaction),
-        raw: normalizeDeep(res) as Record<string, unknown>,
+        transactions: transactions.map((tx, i) => decodeBlockTransaction(tx, normalizedTxs[i] ?? {})),
+        raw: normalized,
     };
 };
 
@@ -319,6 +335,8 @@ export const decodeTransaction = (res: Raw, txid: string): TransactionResult => 
     const pqAuthSig = Array.isArray(res.pq_auth_sig) ? (res.pq_auth_sig as Raw[]) : [];
     const ret = Array.isArray(res.ret) ? (res.ret as Raw[]) : [];
     const found = contracts.length > 0;
+    // `rawData` is the same object as `raw.raw_data`: normalized once, not twice.
+    const normalized = normalizeDeep(res) as Raw;
     return {
         txid,
         contractType: contracts[0]?.type as string | undefined,
@@ -333,8 +351,8 @@ export const decodeTransaction = (res: Raw, txid: string): TransactionResult => 
             };
         }),
         ret: ret.map(r => String(r.contractRet ?? '')),
-        rawData: normalizeDeep(rawData) as Record<string, unknown>,
-        raw: normalizeDeep(res) as Record<string, unknown>,
+        rawData: (normalized.raw_data ?? {}) as Record<string, unknown>,
+        raw: normalized,
         found,
     };
 };
