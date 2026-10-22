@@ -1,5 +1,5 @@
 /**
- * Post-quantum signatures — TIP-899 (FN-DSA-512 / Falcon-512).
+ * Post-quantum signatures — TIP-899 (FN-DSA-512 / Falcon-512 and ML-DSA-44).
  *
  * Wire formats here follow TIP-899 exactly, so the artifacts this module
  * produces are verifiable by java-tron (which verifies with BouncyCastle):
@@ -19,6 +19,7 @@
  * restored on the way in.
  */
 import { falcon512 } from '@noble/post-quantum/falcon.js';
+import { ml_dsa44 } from '@noble/post-quantum/ml-dsa.js';
 import { keccak_256 as keccak256 } from '@noble/hashes/sha3.js';
 import { bytesToHex, hexToBytesSafe, stripHexPrefix } from './hex';
 import { bytesToBase58Address, TRON_ADDRESS_PREFIX } from './address';
@@ -80,18 +81,18 @@ export interface FalconKeyPair {
 const toKeyBytes = (key: string | Uint8Array, expected: number, what: string): Uint8Array => {
     const bytes = typeof key === 'string' ? hexToBytesSafe(stripHexPrefix(key)) : key;
     if (bytes.length !== expected) {
-        throw new Error(`Invalid FN-DSA-512 ${what} length: expected ${expected} bytes, got ${bytes.length}`);
+        throw new Error(`Invalid ${what} length: expected ${expected} bytes, got ${bytes.length}`);
     }
     return bytes;
 };
 
 /** Normalize a TRON 896-byte public key (hex or bytes) to raw bytes. */
 export const falconPublicKeyToBytes = (publicKey: string | Uint8Array): Uint8Array =>
-    toKeyBytes(publicKey, FALCON_PUBLIC_KEY_BYTES, 'public key');
+    toKeyBytes(publicKey, FALCON_PUBLIC_KEY_BYTES, 'FN-DSA-512 public key');
 
 /** Normalize a TRON 1280-byte private key (hex or bytes) to raw bytes. */
 export const falconPrivateKeyToBytes = (privateKey: string | Uint8Array): Uint8Array =>
-    toKeyBytes(privateKey, FALCON_PRIVATE_KEY_BYTES, 'private key');
+    toKeyBytes(privateKey, FALCON_PRIVATE_KEY_BYTES, 'FN-DSA-512 private key');
 
 /**
  * Derive the raw 21-byte (`0x41`-prefixed) TRON address of any PQ public key.
@@ -140,7 +141,7 @@ export const falconPrivateKeyToPublicKey = (privateKey: string | Uint8Array): st
  * `privateKey`, not the seed.
  */
 export const generateFalconKey = (seed?: string | Uint8Array): FalconKeyPair => {
-    const seedBytes = seed === undefined ? undefined : toKeyBytes(seed, FALCON_SEED_BYTES, 'seed');
+    const seedBytes = seed === undefined ? undefined : toKeyBytes(seed, FALCON_SEED_BYTES, 'FN-DSA-512 seed');
     const { publicKey, secretKey } = falcon512.keygen(seedBytes);
     const pk = publicKey.subarray(1);
     return {
@@ -200,6 +201,142 @@ export const verifyDigestFalcon = (
         return falcon512.verify(sig, digest, pk);
     } catch {
         return false;
+    }
+};
+
+/* -------------------------------------------------------------------------- */
+/* ML-DSA-44 (FIPS 204)                                                        */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * ML-DSA-44 is TIP-899's second scheme: finalized as FIPS 204, so it is the
+ * hedge against FN-DSA-512 (still a FIPS 206 draft) changing under audit.
+ * Wire formats match java-tron's BouncyCastle `MLDSA44` exactly:
+ *
+ * - `public_key`  fixed 1312 B (`rho ‖ t1`), no tag.
+ * - `signature`   fixed 2420 B — pure ML-DSA over the 32-byte digest with an
+ *                 empty context (no HashML-DSA pre-hash).
+ * - private key   2560 B, the standard FIPS 204 expanded encoding.
+ *
+ * Unlike Falcon, keygen is pure integer arithmetic: a 32-byte seed yields the
+ * same keypair here as in java-tron (checked against its KAT vectors).
+ */
+
+/** Fixed length of an ML-DSA-44 public key. */
+export const ML_DSA_44_PUBLIC_KEY_BYTES = 1312;
+/** Fixed length of an ML-DSA-44 private key (FIPS 204 expanded encoding). */
+export const ML_DSA_44_PRIVATE_KEY_BYTES = 2560;
+/** Fixed length of an ML-DSA-44 signature. */
+export const ML_DSA_44_SIGNATURE_BYTES = 2420;
+/** Seed length accepted by {@link generateMlDsa44Key} (FIPS 204 `xi`). */
+export const ML_DSA_44_SEED_BYTES = 32;
+/** TVM precompile that verifies one ML-DSA-44 signature. */
+export const VERIFY_ML_DSA_44_PRECOMPILE = '0x02000018';
+
+/** An ML-DSA-44 keypair. Both halves are hex, without the `0x` prefix. */
+export interface MlDsa44KeyPair {
+    /** 2560-byte private key (hex). */
+    privateKey: string;
+    /** 1312-byte public key (hex). */
+    publicKey: string;
+    /** Base58 "T..." address derived from `publicKey`. */
+    address: string;
+}
+
+/** Normalize an ML-DSA-44 public key (hex or bytes) to raw bytes. */
+export const mlDsa44PublicKeyToBytes = (publicKey: string | Uint8Array): Uint8Array =>
+    toKeyBytes(publicKey, ML_DSA_44_PUBLIC_KEY_BYTES, 'ML-DSA-44 public key');
+
+/** Normalize an ML-DSA-44 private key (hex or bytes) to raw bytes. */
+export const mlDsa44PrivateKeyToBytes = (privateKey: string | Uint8Array): Uint8Array =>
+    toKeyBytes(privateKey, ML_DSA_44_PRIVATE_KEY_BYTES, 'ML-DSA-44 private key');
+
+/** Derive the base58 TRON address ("T...") of an ML-DSA-44 public key. */
+export const mlDsa44PublicKeyToAddress = (publicKey: string | Uint8Array): string =>
+    pqPublicKeyToAddress(mlDsa44PublicKeyToBytes(publicKey));
+
+/** Recover the public key of an ML-DSA-44 private key. */
+export const mlDsa44PrivateKeyToPublicKey = (privateKey: string | Uint8Array): string =>
+    bytesToHex(ml_dsa44.getPublicKey(mlDsa44PrivateKeyToBytes(privateKey)));
+
+/**
+ * Generate an ML-DSA-44 keypair.
+ *
+ * @param seed Optional 32-byte seed (hex or bytes). Unlike Falcon, the result is
+ * reproducible across implementations, so a backed-up seed restores the same
+ * key — and address — in java-tron's Toolkit too.
+ */
+export const generateMlDsa44Key = (seed?: string | Uint8Array): MlDsa44KeyPair => {
+    const seedBytes = seed === undefined ? undefined : toKeyBytes(seed, ML_DSA_44_SEED_BYTES, 'ML-DSA-44 seed');
+    const { publicKey, secretKey } = ml_dsa44.keygen(seedBytes);
+    return {
+        privateKey: bytesToHex(secretKey),
+        publicKey: bytesToHex(publicKey),
+        address: pqPublicKeyToAddress(publicKey),
+    };
+};
+
+/** Sign a 32-byte digest with ML-DSA-44 (pure mode, empty context, hedged randomness). */
+export const signDigestMlDsa44 = (digest: Uint8Array, privateKey: string | Uint8Array): Uint8Array =>
+    ml_dsa44.sign(digest, mlDsa44PrivateKeyToBytes(privateKey));
+
+/** Sign a transaction id (SHA-256 of `raw_data`, given as hex) with ML-DSA-44. */
+export const signTransactionIdMlDsa44 = (txid: string, privateKey: string | Uint8Array): Uint8Array =>
+    signDigestMlDsa44(hexToBytesSafe(stripHexPrefix(txid)), privateKey);
+
+/** Verify an ML-DSA-44 signature over a digest. Returns false on malformed input. */
+export const verifyDigestMlDsa44 = (
+    digest: Uint8Array,
+    signature: string | Uint8Array,
+    publicKey: string | Uint8Array
+): boolean => {
+    try {
+        const sig = typeof signature === 'string' ? hexToBytesSafe(stripHexPrefix(signature)) : signature;
+        if (sig.length !== ML_DSA_44_SIGNATURE_BYTES) return false;
+        return ml_dsa44.verify(sig, digest, mlDsa44PublicKeyToBytes(publicKey));
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * Build the 3764-byte input for the `VerifyMlDsa44` precompile (`0x02000018`):
+ * `msg(32) ‖ sig(2420) ‖ pk(1312)`. Both lengths are fixed, so no padding.
+ */
+export const encodeVerifyMlDsa44Input = (
+    digest: Uint8Array,
+    signature: Uint8Array,
+    publicKey: string | Uint8Array
+): Uint8Array => {
+    if (digest.length !== 32) throw new Error('VerifyMlDsa44 expects a 32-byte message digest');
+    if (signature.length !== ML_DSA_44_SIGNATURE_BYTES) {
+        throw new Error(`Invalid ML-DSA-44 signature: expected ${ML_DSA_44_SIGNATURE_BYTES} bytes`);
+    }
+    const pk = mlDsa44PublicKeyToBytes(publicKey);
+    const out = new Uint8Array(32 + ML_DSA_44_SIGNATURE_BYTES + ML_DSA_44_PUBLIC_KEY_BYTES);
+    out.set(digest, 0);
+    out.set(signature, 32);
+    out.set(pk, 32 + ML_DSA_44_SIGNATURE_BYTES);
+    return out;
+};
+
+/**
+ * Verify a signature from any supported PQ scheme. Unknown schemes return false,
+ * never true — an unverifiable signature is not a valid one.
+ */
+export const verifyDigestPQ = (
+    scheme: PQSchemeValue,
+    digest: Uint8Array,
+    signature: string | Uint8Array,
+    publicKey: string | Uint8Array
+): boolean => {
+    switch (scheme) {
+        case PQScheme.FN_DSA_512:
+            return verifyDigestFalcon(digest, signature, publicKey);
+        case PQScheme.ML_DSA_44:
+            return verifyDigestMlDsa44(digest, signature, publicKey);
+        default:
+            return false;
     }
 };
 
@@ -292,23 +429,39 @@ export const signMessagePQ = (
 };
 
 /**
- * Verify a PQ message envelope and return the base58 address of the signer.
- * Throws if the envelope is malformed or the signature does not verify.
+ * Sign a plain-text message with ML-DSA-44. Same digest and envelope as
+ * {@link signMessagePQ}; only the scheme byte differs.
+ */
+export const signMessageMlDsa44 = (
+    message: string,
+    privateKey: string | Uint8Array,
+    publicKey?: string | Uint8Array
+): string => {
+    const pk = mlDsa44PublicKeyToBytes(publicKey ?? mlDsa44PrivateKeyToPublicKey(privateKey));
+    const signature = signDigestMlDsa44(hashMessage(message), privateKey);
+    return encodePqEnvelope(PQScheme.ML_DSA_44, pk, signature);
+};
+
+/**
+ * Verify a PQ message envelope (FN-DSA-512 or ML-DSA-44) and return the base58
+ * address of the signer. Throws if the envelope is malformed or the signature
+ * does not verify.
  *
- * Falcon cannot recover a key from a signature, so the address is *derived from
- * the envelope's public key*: an attacker can always re-sign a message with
+ * PQ schemes cannot recover a key from a signature, so the address is *derived
+ * from the envelope's public key*: an attacker can always re-sign a message with
  * their own key. Compare the returned address against the one you expect —
  * the same pattern as checking `verifyMessageV2`'s result.
  */
 export const verifyMessagePQ = (message: string, envelope: string): string => {
     const { scheme, publicKey, signature } = decodePqEnvelope(envelope);
-    if (scheme !== PQScheme.FN_DSA_512) {
+    if (scheme !== PQScheme.FN_DSA_512 && scheme !== PQScheme.ML_DSA_44) {
         throw new Error(`Unsupported PQ scheme in envelope: ${scheme}`);
     }
-    if (!verifyDigestFalcon(hashMessage(message), signature, publicKey)) {
-        throw new Error('Invalid FN-DSA-512 message signature');
+    if (!verifyDigestPQ(scheme, hashMessage(message), signature, publicKey)) {
+        const name = scheme === PQScheme.FN_DSA_512 ? 'FN-DSA-512' : 'ML-DSA-44';
+        throw new Error(`Invalid ${name} message signature`);
     }
-    return falconPublicKeyToAddress(publicKey);
+    return pqPublicKeyToAddress(publicKey);
 };
 
 /**

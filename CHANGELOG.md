@@ -5,6 +5,63 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-10-22
+
+### Fixed
+
+- **Base58 addresses are now checksum-validated everywhere.** `toAddressBytes`,
+  `toHexAddress`, `toBase58Address` and `base58ToBytes` previously stripped the
+  checksum without checking it, so a mistyped "T..." address silently decoded to a
+  different, unowned address — including as the recipient of `sendTrx`. They now
+  throw `Invalid TRON address checksum`. (`isAddress` already validated.)
+- Generated google-protobuf bindings (`src/proto/*.ts`) were stale and lacked the
+  TIP-899 `PQScheme` / `PQAuthSig` / `pq_auth_sig` definitions; regenerated.
+
+### Changed
+
+- Synced protos with `tronprotocol/protocol@master`: `events` in
+  `IvkDecryptTRC20Parameters` / `OvkDecryptTRC20Parameters` is now `deprecated`.
+  TIP-899 fields remain vendored (not yet upstream).
+- Dependencies updated to latest: `@grpc/grpc-js` 1.14.6, `@noble/curves` /
+  `@noble/hashes` / `@scure/*` 2.4.0, `@noble/post-quantum` 0.7.1 (Falcon-512 keygen
+  verified byte-identical to 0.6.1, so existing PQ keys and addresses are unchanged),
+  `google-protobuf` 4.0.3, `protobufjs` 7.6.6, plus dev tooling.
+- `@grpc/proto-loader` is now a declared dependency (it was imported but only
+  installed transitively via `@grpc/grpc-js`).
+- Held back: `typescript` 7 (`typescript-eslint` supports `<6.1`) and `protobufjs` 8
+  (`@grpc/proto-loader` still requires `^7`; upgrading would ship two copies).
+
+### Added
+
+- **ML-DSA-44 (FIPS 204) post-quantum signatures — TIP-899's second scheme.** Keygen
+  (`generateMlDsa44Key`, seed-portable), signing (`signDigestMlDsa44`,
+  `signTransactionIdMlDsa44`, `signMessageMlDsa44`), verification (`verifyDigestMlDsa44`,
+  and the scheme-agnostic `verifyDigestPQ`), `MlDsa44Signer`, and
+  `encodeVerifyMlDsa44Input` for the `VerifyMlDsa44` precompile (`0x02000018`). Wire format
+  matches java-tron's reference `MLDSA44` (pure ML-DSA, empty context; 1312 B public key,
+  2420 B signature, 2560 B private key); keygen matches its BouncyCastle KAT vectors byte
+  for byte.
+  - `sendTrx` / `signAndBroadcast` / `getSigner` accept ML-DSA-44 keys. A `TronPqKey`'s
+    scheme comes from `keyType` (`'FALCON'` | `'ML_DSA_44'`) or is inferred from the private
+    key's length (`pqKeyType`).
+  - `verifyTransaction` / `verifyMessagePQ` / `verifySignedMessage` verify ML-DSA-44 instead
+    of rejecting it as unsupported; `KeyType` gains `'ML_DSA_44'`.
+  - The pre-broadcast activation guard now checks each scheme's own flag
+    (`ALLOW_FN_DSA_512` / `ALLOW_ML_DSA_44`).
+- **Rate-limit retry** (`rateLimitRetry` client option, on by default): calls rejected with
+  HTTP 429 / `RESOURCE_EXHAUSTED` are retried with exponential backoff and jitter. The
+  existing gRPC retry policy never covered this case — a 429 commits the call.
+- `getCanDelegatedMaxSize(address, type, pqScheme?)`: TIP-899's `pq_scheme` request field,
+  so the bandwidth estimate reserves room for a PQ signature. `sync-proto` now vendors it
+  (and `HelloMessage.pq_auth_sig`) from the TIP-899 reference implementation.
+- `npm run test:nile`: real signed broadcasts on Nile — ECDSA, FN-DSA-512, ML-DSA-44 (or its
+  refusal while inactive), and a mixed ECDSA + FN-DSA-512 multi-sig owner permission.
+- `engines.node >= 20.19.0` (required by `@noble/post-quantum` 0.7).
+- Committed test suite in `test/`: `npm run test:unit` (offline known-answer tests
+  against the built package) and `npm run test:live` (read-only mainnet checks,
+  including txid recomputation of real transactions). `npm run verify` now builds
+  and runs the unit tests.
+
 ## [2.2.0] - 2026-07-13
 
 ### Added

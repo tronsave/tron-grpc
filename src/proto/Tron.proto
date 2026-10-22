@@ -6,7 +6,6 @@ import "src/proto/contract/common.proto";
 package protocol;
 
 
-
 enum AccountType {
   Normal = 0;
   AssetIssue = 1;
@@ -450,21 +449,6 @@ message Transaction {
   repeated PQAuthSig pq_auth_sig = 6;
 }
 
-// TIP-899: post-quantum signature schemes.
-enum PQScheme {
-  UNKNOWN_PQ_SCHEME = 0; // proto3 default; never registered, rejected at verification
-  FN_DSA_512 = 1;        // FN-DSA-512 / Falcon-512 (FIPS 206 draft)
-  ML_DSA_44 = 2;         // ML-DSA-44 / Dilithium-2 (FIPS 204)
-}
-
-// TIP-899: algorithm-agnostic PQ signature envelope. PQ schemes have no
-// `ecrecover` equivalent, so the full public key travels with the signature.
-message PQAuthSig {
-  PQScheme scheme = 1; // required; UNKNOWN_PQ_SCHEME is rejected at verification
-  bytes public_key = 2;
-  bytes signature = 3;
-}
-
 message TransactionInfo {
   enum code {
     SUCESS = 0;
@@ -645,6 +629,8 @@ message HelloMessage {
   int32 nodeType = 9;
   int64 lowestBlockNum = 10;
   bytes codeVersion = 11;
+  // TIP-899: P2P handshake signature from a PQ-only witness.
+  PQAuthSig pq_auth_sig = 12;
 }
 
 message InternalTransaction {
@@ -912,4 +898,19 @@ message SRL {
 message Any {
   string type_url = 1;
   bytes value = 2;
+}
+
+// TIP-899: post-quantum signature schemes.
+enum PQScheme {
+  UNKNOWN_PQ_SCHEME = 0; // proto3 default; never registered, rejected at verification
+  FN_DSA_512 = 1;        // FN-DSA-512 / Falcon-512 (FIPS 206 draft)
+  ML_DSA_44 = 2;         // ML-DSA-44 / Dilithium-2 (FIPS 204)
+}
+
+// TIP-899: algorithm-agnostic PQ signature envelope. PQ schemes have no
+// `ecrecover` equivalent, so the full public key travels with the signature.
+message PQAuthSig {
+  PQScheme scheme = 1; // required; UNKNOWN_PQ_SCHEME is rejected at verification
+  bytes public_key = 2;
+  bytes signature = 3;
 }

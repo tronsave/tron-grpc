@@ -104,8 +104,15 @@ const client = TronGrpcClient.fromNetwork('mainnet'); // 'mainnet' | 'nile' | 's
 const client = new TronGrpcClient('grpc.trongrid.io:50051', {
   headers: { 'TRON-PRO-API-KEY': '…' },              // added to every call's metadata
   grpcOptions: { 'grpc.keepalive_time_ms': 30000 },  // merged over tuned defaults
+  rateLimitRetry: { maxRetries: 5, baseDelayMs: 500 }, // default; `false` disables
 });
 ```
+
+Calls rejected by rate limiting (TronGrid's HTTP 429 without an API key, or
+`RESOURCE_EXHAUSTED`) are retried with exponential backoff and jitter. gRPC's own
+retry policy cannot do this: a 429 arrives with response headers, which commits the
+call. Retrying is safe for every method — a rate-limited request never reached a node,
+and re-broadcasting the same signed transaction cannot double-spend.
 
 #### Logging
 
@@ -222,18 +229,27 @@ const res = await client.signAndBroadcast(ext, privateKey);  // sign + broadcast
 ## Post-quantum signatures (TIP-899)
 
 TRON's [TIP-899](https://github.com/tronprotocol/tips/issues/899) adds post-quantum
-signatures alongside ECDSA. This library implements **FN-DSA-512** (Falcon-512), which is
-live on Nile today (`ALLOW_FN_DSA_512`, proposal 1000).
+signatures alongside ECDSA. This library implements both of its schemes:
+
+| Scheme | Key type | Public key | Signature | Activation | Status |
+| --- | --- | --- | --- | --- | --- |
+| **FN-DSA-512** (Falcon-512, FIPS 206 draft) | `'FALCON'` | 896 B | 617–667 B | `ALLOW_FN_DSA_512` (1000) | live on Nile |
+| **ML-DSA-44** (FIPS 204, final) | `'ML_DSA_44'` | 1312 B | 2420 B | `ALLOW_ML_DSA_44` (1001) | in the Nile build, not yet activated |
 
 **ECDSA is unaffected.** A hex private key behaves exactly as before — same functions, same
 signatures, same call-sites. PQ is an additional key type, not a replacement.
 
 ```ts
-import { generateFalconKey } from 'tron-grpc';
+import { generateFalconKey, generateMlDsa44Key } from 'tron-grpc';
 
 const key = generateFalconKey();
 // { privateKey: '…', publicKey: '…', address: 'T…' }  ← an ordinary T-address
+const mlKey = generateMlDsa44Key(); // same shape
 ```
+
+The scheme is read from `keyType` when present, otherwise inferred from the private
+key's length (1280 B for FN-DSA-512, 2560 B for ML-DSA-44), so a bare
+`{ privateKey }` works for either.
 
 Pass the keypair anywhere a private key goes; the signer is chosen by key type:
 
@@ -251,10 +267,10 @@ identically, and the signature goes into the new `pq_auth_sig` field instead of
 
 ### Networks: Nile only, for now
 
-FN-DSA-512 is live on **Nile**. It is **not enabled on mainnet** — a mainnet node would
-reject a PQ signature. The client enforces this for you: signing with a PQ key checks the
-chain's activation flags first and throws rather than broadcasting a transaction that
-cannot succeed.
+FN-DSA-512 is live on **Nile**; ML-DSA-44 is in the Nile build but not yet activated.
+Neither is enabled on mainnet — a mainnet node would reject a PQ signature. The client
+enforces this for you: signing with a PQ key checks that scheme's own activation flag
+first and throws rather than broadcasting a transaction that cannot succeed.
 
 ```ts
 await client.sendTrx({ to, amount: '1.5', privateKey: falconKey }); // on mainnet:
@@ -278,10 +294,10 @@ with the signature, so the string is an *envelope* (magic `TPQ1` + scheme + publ
 signature) rather than a bare signature:
 
 ```ts
-import { getSigner, signMessagePQ, verifyMessagePQ, isPqEnvelope } from 'tron-grpc';
+import { getSigner, signMessagePQ, signMessageMlDsa44, verifyMessagePQ, isPqEnvelope } from 'tron-grpc';
 
-const envelope = getSigner(key).signMessage('login nonce 42');   // or signMessagePQ(...)
-const signer = verifyMessagePQ('login nonce 42', envelope);      // → 'T…', throws if invalid
+const envelope = getSigner(key).signMessage('login nonce 42');   // or signMessagePQ / signMessageMlDsa44
+const signer = verifyMessagePQ('login nonce 42', envelope);      // either scheme → 'T…', throws if invalid
 
 if (signer !== expectedAddress) throw new Error('wrong signer');
 ```
@@ -304,7 +320,8 @@ import { verifyTransaction, computeTxid } from 'tron-grpc';
 
 const { txid, valid, signers } = verifyTransaction(tx);
 // signers: [{ address: 'T…', keyType: 'ECDSA', valid: true },
-//           { address: 'T…', keyType: 'FALCON', scheme: 'FN_DSA_512', valid: true }]
+//           { address: 'T…', keyType: 'FALCON', scheme: 'FN_DSA_512', valid: true },
+//           { address: 'T…', keyType: 'ML_DSA_44', scheme: 'ML_DSA_44', valid: true }]
 
 // or fetch and verify in one step
 const result = await client.verifyTransactionById(txid);
@@ -324,19 +341,26 @@ address, and `verifySignedMessage` accepts either and dispatches on the envelope
 ### On-chain verification from a contract
 
 `encodeVerifyFnDsa512Input` builds the 1594-byte input for the `VerifyFnDsa512` precompile
-at `0x02000016` (`msg(32) ‖ sig(666, zero-padded) ‖ pk(896)`).
+at `0x02000016` (`msg(32) ‖ sig(666, zero-padded) ‖ pk(896)`), and
+`encodeVerifyMlDsa44Input` the 3764-byte input for `VerifyMlDsa44` at `0x02000018`
+(`msg(32) ‖ sig(2420) ‖ pk(1312)`).
 
 ### Notes and limits
 
-- **Sizes.** A PQ public key is 896 B and a signature 617–667 B, versus 33 B / 65 B for
-  ECDSA. PQ transactions are ~1.5 KB larger and consume correspondingly more bandwidth.
+- **Sizes.** An FN-DSA-512 public key is 896 B and a signature 617–667 B (ML-DSA-44:
+  1312 B / 2420 B), versus 33 B / 65 B for ECDSA. PQ transactions are ~1.5 KB (FN-DSA) or
+  ~3.7 KB (ML-DSA) larger and consume correspondingly more bandwidth. Pass the scheme to
+  `getCanDelegatedMaxSize(address, 0, PQScheme.FN_DSA_512)` so the bandwidth estimate
+  reserves room for it.
 - **Fund a PQ address before its first send.** A PQ-derived address is an ordinary TRON
   account and needs no special activation step, but — like any address — it must receive TRX
   before it can send: an unfunded one passes signature verification and then fails contract
   validation with `account does not exist`.
-- **Back up `privateKey`, not the seed.** Falcon key generation is FFT-based and not
-  bit-stable across implementations, so the same seed yields a different keypair — and a
-  different address — under java-tron/BouncyCastle. TIP-899 §8 gives the same warning.
+- **FN-DSA-512: back up `privateKey`, not the seed.** Falcon key generation is FFT-based
+  and not bit-stable across implementations, so the same seed yields a different keypair —
+  and a different address — under java-tron/BouncyCastle. TIP-899 §8 gives the same warning.
+  **ML-DSA-44 seeds are portable**: keygen is integer-only, and a 32-byte seed yields the
+  same key here as in java-tron's Toolkit (checked against its BouncyCastle KAT vectors).
 - **Interoperability is verified**, not assumed: this library's signatures are checked
   against the 100 official Falcon-512 KAT vectors that BouncyCastle (which java-tron uses)
   is tested against, and a Nile node derives the identical address from the public key we
@@ -344,8 +368,8 @@ at `0x02000016` (`msg(32) ‖ sig(666, zero-padded) ‖ pk(896)`).
 - **Mainnet is unaffected.** An ECDSA transaction serializes to byte-identical wire output
   under the pre-TIP-899 protobuf and the new one (`pq_auth_sig` is a repeated field: when
   empty, it emits nothing), so mainnet nodes see exactly what they saw before.
-- **ML-DSA-44** (proposal 1001) is not implemented; it is not yet enabled on Nile. The
-  `PQScheme` enum and `pq_auth_sig` decoding already account for it.
+- **ML-DSA-44 signing mode** matches java-tron's `MLDSA44` exactly: pure ML-DSA (no
+  HashML-DSA pre-hash) over the 32-byte txid, empty context, hedged randomness.
 
 ---
 
@@ -393,9 +417,17 @@ to supply secrets is via the environment, never in code:
 ```bash
 npm run typecheck   # tsc --noEmit (sources + test.ts), full strict mode
 npm run lint        # eslint (no `any` in public API)
-npm test            # tsx test.ts — hits the real network
-npm run verify      # all three
+npm run test:unit   # offline known-answer tests against the built dist/ (no network, no keys)
+npm run test:live   # read-only checks against a public node (no keys; TRON_PRO_API_KEY optional)
+npm run test:nile   # signs + broadcasts on Nile: ECDSA, FN-DSA-512, ML-DSA-44, mixed multi-sig
+                    # (needs a funded testnet TRON_PRIVATE_KEY in .env; refuses mainnet)
+npm run verify      # typecheck + lint + build + test:unit
+npm test            # tsx test.ts — private broadcast suite (gitignored, see below)
 ```
+
+`test/` is committed and needs no secrets. `test:live` re-serializes real
+mainnet transactions and asserts `computeTxid` reproduces the node's txid, so a
+proto sync that breaks encoding fails loudly.
 
 The suite makes **real** calls (nothing is hardcoded to pass) and includes four
 Tronscan cross-checks — for the same data, it reads via this library (gRPC) and
