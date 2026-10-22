@@ -90,26 +90,37 @@ export {
 export { computeTxid, verifyTransaction } from './utils/verify';
 export type { TransactionSigner, TransactionVerification } from './utils/verify';
 
-// Post-quantum signatures (TIP-899, FN-DSA-512 / Falcon-512)
+// Post-quantum signatures (TIP-899: FN-DSA-512 / Falcon-512, ML-DSA-44)
 export {
     decodePqEnvelope,
     encodePqEnvelope,
     encodeVerifyFnDsa512Input,
+    encodeVerifyMlDsa44Input,
     falconPrivateKeyToBytes,
     falconPrivateKeyToPublicKey,
     falconPublicKeyToAddress,
     falconPublicKeyToAddressBytes,
     falconPublicKeyToBytes,
     generateFalconKey,
+    generateMlDsa44Key,
     isPqEnvelope,
+    mlDsa44PrivateKeyToBytes,
+    mlDsa44PrivateKeyToPublicKey,
+    mlDsa44PublicKeyToAddress,
+    mlDsa44PublicKeyToBytes,
     PQScheme,
     pqPublicKeyToAddress,
     pqPublicKeyToAddressBytes,
     signDigestFalcon,
+    signDigestMlDsa44,
+    signMessageMlDsa44,
     signMessagePQ,
     signTransactionIdFalcon,
+    signTransactionIdMlDsa44,
     toPrecompileSignature,
     verifyDigestFalcon,
+    verifyDigestMlDsa44,
+    verifyDigestPQ,
     verifyMessagePQ,
     verifySignedMessage,
     FALCON_PRECOMPILE_SIGNATURE_BYTES,
@@ -119,13 +130,18 @@ export {
     FALCON_SIGNATURE_HEADER,
     FALCON_SIGNATURE_MAX_BYTES,
     FALCON_SIGNATURE_MIN_BYTES,
+    ML_DSA_44_PRIVATE_KEY_BYTES,
+    ML_DSA_44_PUBLIC_KEY_BYTES,
+    ML_DSA_44_SEED_BYTES,
+    ML_DSA_44_SIGNATURE_BYTES,
     PQ_ENVELOPE_MAGIC,
     VERIFY_FN_DSA_512_PRECOMPILE,
+    VERIFY_ML_DSA_44_PRECOMPILE,
 } from './utils/pq';
-export type { FalconKeyPair, PqEnvelope, PQSchemeValue } from './utils/pq';
+export type { FalconKeyPair, MlDsa44KeyPair, PqEnvelope, PQSchemeValue } from './utils/pq';
 
 // Signing strategies (ECDSA + post-quantum, selected by key type)
-export { addressOf, EcdsaSigner, FalconSigner, getSigner, isPqKey } from './utils/signer';
+export { addressOf, EcdsaSigner, FalconSigner, getSigner, isPqKey, MlDsa44Signer, pqKeyType } from './utils/signer';
 export type { Signer } from './utils/signer';
 
 // Hex + ABI helpers

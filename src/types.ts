@@ -4,20 +4,26 @@ import type { DecimalLike } from './utils/units';
 export type TronResource = 'BANDWIDTH' | 'ENERGY' | 'TRON_POWER';
 
 /** Signature algorithm backing an account's key. */
-export type KeyType = 'ECDSA' | 'FALCON';
+export type KeyType = 'ECDSA' | 'FALCON' | 'ML_DSA_44';
 
 /**
- * A post-quantum keypair (TIP-899 FN-DSA-512 / Falcon-512).
+ * A post-quantum keypair (TIP-899): FN-DSA-512 / Falcon-512 or ML-DSA-44.
  *
  * Unlike ECDSA, the public key cannot be recovered from a signature, so it
  * travels with every signature and must be known to the signer.
  */
 export interface TronPqKey {
-    /** Always `'FALCON'`. Present so keystores can tag records by algorithm. */
-    keyType?: 'FALCON';
-    /** 1280-byte FN-DSA-512 private key (hex). */
+    /**
+     * `'FALCON'` (FN-DSA-512) or `'ML_DSA_44'`. Optional: when omitted, the scheme
+     * is inferred from the private key's length (1280 vs 2560 bytes).
+     */
+    keyType?: 'FALCON' | 'ML_DSA_44';
+    /** Private key (hex): 1280-byte FN-DSA-512 or 2560-byte ML-DSA-44. */
     privateKey: string;
-    /** 896-byte FN-DSA-512 public key (hex). Derived from `privateKey` when omitted. */
+    /**
+     * Public key (hex): 896-byte FN-DSA-512 or 1312-byte ML-DSA-44. Derived from
+     * `privateKey` when omitted.
+     */
     publicKey?: string;
 }
 
@@ -410,7 +416,7 @@ export interface AccountResources {
 /** A decoded transaction (from GetTransactionById). */
 /** A post-quantum signature carried by a transaction (TIP-899 `pq_auth_sig`). */
 export interface PqSignature {
-    /** Scheme name, e.g. `FN_DSA_512`. */
+    /** Scheme name, e.g. `FN_DSA_512` or `ML_DSA_44`. */
     scheme: string;
     /** Signer's PQ public key (hex). */
     publicKey: string;

@@ -359,7 +359,7 @@ service Wallet {
 
   };
 
-  // for shiededTransaction
+  // for shieldedTransaction
   rpc CreateShieldedTransaction (PrivateParameters) returns (TransactionExtention) {
   };
 
@@ -435,7 +435,7 @@ service Wallet {
 
   rpc GetTriggerInputForShieldedTRC20Contract (ShieldedTRC20TriggerContractParameters) returns (BytesMessage) {
   };
-  // end for shiededTransaction
+  // end for shieldedTransaction
 
   rpc CreateCommonTransaction (Transaction) returns (TransactionExtention) {
   };
@@ -720,6 +720,9 @@ message GetAvailableUnfreezeCountResponseMessage {
 message CanDelegatedMaxSizeRequestMessage {
   int32 type = 1;
   bytes owner_address = 2;
+  // TIP-899: when set, the BANDWIDTH estimate reserves room for a PQAuthSig
+  // instead of an ECDSA signature.
+  PQScheme pq_scheme = 3;
 }
 message CanDelegatedMaxSizeResponseMessage {
   int64 max_size = 1;
@@ -1102,7 +1105,7 @@ message IvkDecryptTRC20Parameters {
   bytes ivk = 4;
   bytes ak = 5;
   bytes nk = 6;
-  repeated string events = 7;
+  repeated string events = 7 [deprecated = true];
 }
 
 message OvkDecryptTRC20Parameters {
@@ -1110,7 +1113,7 @@ message OvkDecryptTRC20Parameters {
   int64 end_block_index = 2;
   bytes ovk = 3;
   bytes shielded_TRC20_contract_address = 4;
-  repeated string events = 5;
+  repeated string events = 5 [deprecated = true];
 }
 
 message DecryptNotesTRC20 {

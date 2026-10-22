@@ -84,20 +84,41 @@ const PQ_FIELDS: ReadonlyArray<{ anchor: string; field: string }> = [
       '  // most one of the two.\n' +
       '  PQAuthSig pq_auth_sig = 3;',
   },
+  {
+    anchor: '  bytes codeVersion = 11;',
+    field: '  // TIP-899: P2P handshake signature from a PQ-only witness.\n  PQAuthSig pq_auth_sig = 12;',
+  },
 ];
+
+/** TIP-899 additions to api.proto, spliced the same way (reference: nile-testnet release_post_quantum). */
+const PQ_API_FIELDS: ReadonlyArray<{ anchor: string; field: string }> = [
+  {
+    anchor: 'message CanDelegatedMaxSizeRequestMessage {\n  int32 type = 1;\n  bytes owner_address = 2;',
+    field:
+      '  // TIP-899: when set, the BANDWIDTH estimate reserves room for a PQAuthSig\n' +
+      '  // instead of an ECDSA signature.\n' +
+      '  PQScheme pq_scheme = 3;',
+  },
+];
+
+/** Splice anchored fields in, skipping any that upstream already ships. */
+function spliceFields(file: string, src: string, fields: ReadonlyArray<{ anchor: string; field: string }>): string {
+  let out = src;
+  for (const { anchor, field } of fields) {
+    const name = field.trim().split("\n").pop()!.trim();
+    if (out.includes(name)) continue;
+    if (!out.includes(anchor)) {
+      throw new Error(`${file}: PQ anchor not found: ${anchor.trim()} — upstream changed shape; re-check TIP-899`);
+    }
+    out = out.replace(anchor, `${anchor}\n${field}`);
+  }
+  return out;
+}
 
 /** Splice TIP-899 messages + fields into Tron.proto when upstream lacks them. */
 function vendorPq(src: string): string {
   if (/\bmessage\s+PQAuthSig\b/.test(src)) return src; // upstream shipped it
-  let out = src;
-  for (const { anchor, field } of PQ_FIELDS) {
-    if (!out.includes(anchor)) {
-      throw new Error(
-        `Tron.proto: PQ anchor not found: ${anchor.trim()} — upstream changed shape; re-check TIP-899 field numbers`,
-      );
-    }
-    out = out.replace(anchor, `${anchor}\n${field}`);
-  }
+  const out = spliceFields("Tron.proto", src, PQ_FIELDS);
   return `${out.replace(/\s*$/, "")}\n${VENDORED_PQ}`;
 }
 
@@ -155,7 +176,7 @@ function transform(remote: string, text: string): string {
     if (!/\bmessage\s+Any\b/.test(out)) out = `${out.replace(/\s*$/, "")}\n${VENDORED_ANY}`;
     out = vendorPq(out);
   }
-  if (remote === "api/api.proto") out = stripHttpOptions(out);
+  if (remote === "api/api.proto") out = spliceFields("api.proto", stripHttpOptions(out), PQ_API_FIELDS);
 
   // Safety net: surface anything we didn't normalize rather than silently shipping a broken proto.
   const stray = out.match(/import\s+"(google|core|api)\/[^"]*"/g);

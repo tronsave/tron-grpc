@@ -20,7 +20,30 @@ export interface TronClientOptions {
     logLevel?: LogLevel;
     /** Custom log sink (e.g. pino/winston). Defaults to `console`. */
     logger?: Logger;
+    /**
+     * Retry calls rejected by rate limiting (TronGrid HTTP 429 /
+     * `RESOURCE_EXHAUSTED`) with exponential backoff and jitter. On by default;
+     * `false` disables it.
+     *
+     * gRPC's own retry policy cannot cover this: a 429 arrives with response
+     * headers, which commits the call, so grpc-js never retries it.
+     */
+    rateLimitRetry?: false | { maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number };
 }
+
+/** Defaults for {@link TronClientOptions.rateLimitRetry}: waits ~0.5s, 1s, 2s, 4s, 8s. */
+const RATE_LIMIT_RETRY = { maxRetries: 5, baseDelayMs: 500, maxDelayMs: 8000 };
+
+/**
+ * True for a rejection by rate limiting. Such a request never reached a node, so
+ * retrying is safe for every method — including `BroadcastTransaction`, where
+ * re-sending the same signed transaction cannot double-spend anyway.
+ */
+const isRateLimited = (err: grpc.ServiceError): boolean =>
+    err.code === grpc.status.RESOURCE_EXHAUSTED ||
+    (err.code === grpc.status.UNAVAILABLE && /\b429\b/.test(err.details ?? err.message));
+
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
 const connectivityStateName = (state: number): string => {
     switch (state) {
@@ -47,6 +70,7 @@ const connectivityStateName = (state: number): string => {
 export class TronClientCore {
     private readonly walletClient: grpc.Client;
     private readonly headers?: Record<string, string>;
+    private readonly retry: typeof RATE_LIMIT_RETRY | null;
     protected readonly log: Logger;
     private ready = false;
     private watching = false;
@@ -79,6 +103,7 @@ export class TronClientCore {
 
     constructor(host: string = TRON_NETWORKS.mainnet.grpcHost, options: TronClientOptions = {}) {
         this.headers = options.headers;
+        this.retry = options.rateLimitRetry === false ? null : { ...RATE_LIMIT_RETRY, ...options.rateLimitRetry };
         this.log = createLogger(resolveLogLevel(options.logLevel), options.logger);
         const merged: grpc.ClientOptions = { ...TronClientCore.DEFAULT_OPTIONS, ...options.grpcOptions };
 
@@ -104,25 +129,34 @@ export class TronClientCore {
      * Generic escape hatch: invoke any Wallet RPC by name and get the raw
      * proto-loader response typed as `T` (defaults to `unknown`, never `any`).
      */
-    request<T = unknown>(method: string, requestMessage: unknown): Promise<T> {
+    async request<T = unknown>(method: string, requestMessage: unknown): Promise<T> {
         const fn = (this.walletClient as unknown as Record<string, UnaryFn>)[method];
         if (typeof fn !== 'function') {
             this.log.error(`unknown RPC method: ${method}`);
-            return Promise.reject(new Error(`Unknown Wallet RPC method: ${method}`));
+            throw new Error(`Unknown Wallet RPC method: ${method}`);
         }
         const started = Date.now();
         this.log.debug(`→ ${method}`);
-        return new Promise<T>((resolve, reject) => {
-            fn.call(this.walletClient, requestMessage, (err, res) => {
-                if (err) {
-                    this.log.error(`✗ ${method} (${err.code}): ${err.message}`);
-                    reject(err);
-                    return;
-                }
+        for (let attempt = 0; ; attempt++) {
+            try {
+                const res = await new Promise<unknown>((resolve, reject) => {
+                    fn.call(this.walletClient, requestMessage, (err, value) => (err ? reject(err) : resolve(value)));
+                });
                 this.log.debug(`✓ ${method} (${Date.now() - started}ms)`);
-                resolve(res as T);
-            });
-        });
+                return res as T;
+            } catch (e) {
+                const err = e as grpc.ServiceError;
+                if (this.retry && attempt < this.retry.maxRetries && isRateLimited(err)) {
+                    const ceiling = Math.min(this.retry.maxDelayMs, this.retry.baseDelayMs * 2 ** attempt);
+                    const delay = ceiling / 2 + Math.random() * (ceiling / 2);
+                    this.log.warn(`rate limited on ${method}; retry ${attempt + 1} in ${Math.round(delay)}ms`);
+                    await sleep(delay);
+                    continue;
+                }
+                this.log.error(`✗ ${method} (${err.code}): ${err.message}`);
+                throw err;
+            }
+        }
     }
 
     /** Assert TRON-level success on an extention response; logs at error before throw. */
