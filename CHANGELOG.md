@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-10-22
+
+### Fixed
+
+- **Over-size responses are no longer retried as rate limits.** grpc-js reports
+  "Received message larger than max" as `RESOURCE_EXHAUSTED`, which 2.3.0's
+  `rateLimitRetry` mistook for a 429: the call was re-downloaded 5 more times over
+  ~12s before failing. It now fails immediately.
+- The default maximum response size is raised from grpc-js's 4 MiB to 64 MiB
+  (`grpc.max_receive_message_length`), so range reads work: `getBlockByLatestNum(60)`
+  on mainnet is ~8 MB and previously always failed. Override via `grpcOptions`.
+- Passing `headers` no longer discards `interceptors` given in `grpcOptions`.
+
+### Performance
+
+- `getNowBlock` / `getBlockByNum` decode ~3x faster (1.7 → 0.56 ms for a 381-tx
+  mainnet block, output byte-identical): each transaction is normalized once instead
+  of three times, and the byte/address normalizer skips primitives first.
+  `BlockTransaction.raw` / `rawData` / `internalTransactions` are now the same objects
+  as the corresponding subtrees of `BlockSummary.raw` (likewise `TransactionResult.rawData`
+  is `raw.raw_data`), so mutating one is visible through the other.
+- `sendTrx` builds its signer once instead of twice (saves a public-key derivation:
+  ~0.2 ms ECDSA, up to ~0.9 ms for a PQ key given without its public key).
+- Concurrent PQ sends share one in-flight `GetChainParameters` capability check.
+
 ## [2.3.0] - 2026-10-22
 
 ### Fixed
@@ -168,6 +193,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blocks, accounts, transactions, contracts, resources, witnesses, assets, governance,
   chain, and shielded modules.
 
+[2.3.1]: https://github.com/tronsave/tron-grpc/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/tronsave/tron-grpc/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/tronsave/tron-grpc/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/tronsave/tron-grpc/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/tronsave/tron-grpc/releases/tag/v2.0.0

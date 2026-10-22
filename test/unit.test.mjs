@@ -246,3 +246,94 @@ test('verify: one transaction signed by ECDSA + FN-DSA-512 + ML-DSA-44 signers',
     assert.equal(unknown.valid, false);
     assert.match(unknown.signers[1].error, /Unsupported PQ scheme/);
 });
+
+/** A client whose `method` RPC is answered by `impl` — no network involved. */
+const stubClient = (method, impl, options = {}) => {
+    const client = new lib.TronGrpcClient('127.0.0.1:1', options);
+    let calls = 0;
+    client.walletClient[method] = (req, cb) => {
+        calls++;
+        impl(calls, cb);
+    };
+    return { client, calls: () => calls };
+};
+const grpcError = (code, details) => Object.assign(new Error(`${code} ${details}`), { code, details });
+
+test('client: rate-limited calls retry; an over-size response fails fast', async () => {
+    const fast = { rateLimitRetry: { baseDelayMs: 1, maxDelayMs: 2 } };
+    const limited = stubClient(
+        'GetNowBlock2',
+        (n, cb) => (n < 3 ? cb(grpcError(8, 'Too Many Requests')) : cb(null, { ok: true })),
+        fast
+    );
+    assert.deepEqual(await limited.client.request('GetNowBlock2', {}), { ok: true });
+    assert.equal(limited.calls(), 3);
+    limited.client.close();
+
+    // grpc-js reports this as RESOURCE_EXHAUSTED too, but retrying can't help.
+    const big = stubClient(
+        'GetNowBlock2',
+        (_, cb) => cb(grpcError(8, 'Received message larger than max (8019684 vs 4194304)')),
+        fast
+    );
+    await assert.rejects(big.client.request('GetNowBlock2', {}), /larger than max/);
+    assert.equal(big.calls(), 1);
+    big.client.close();
+});
+
+test('client: concurrent PQ capability checks share one GetChainParameters call', async () => {
+    const params = { chainParameter: [{ key: 'getAllowFnDsa512', value: '1' }] };
+    const stub = stubClient('GetChainParameters', (_, cb) => setImmediate(() => cb(null, params)));
+    const check = (k) => stub.client.assertPqSchemeEnabled(k);
+    await Promise.all([check('FALCON'), check('FALCON'), check('FALCON')]);
+    assert.equal(stub.calls(), 1);
+    await check('FALCON'); // latched once enabled
+    assert.equal(stub.calls(), 1);
+    await assert.rejects(Promise.all([check('ML_DSA_44'), check('ML_DSA_44')]), /ML-DSA-44 \(TIP-899\) is not active/);
+    assert.equal(stub.calls(), 2);
+    stub.client.close();
+});
+
+test('client: headers do not replace interceptors passed in grpcOptions', async () => {
+    let userInterceptorRan = false;
+    const client = new lib.TronGrpcClient('127.0.0.1:1', {
+        headers: { 'TRON-PRO-API-KEY': 'test' },
+        rateLimitRetry: false,
+        grpcOptions: {
+            'grpc.enable_retries': 0,
+            interceptors: [
+                (opts, next) => {
+                    userInterceptorRan = true;
+                    return next(opts);
+                },
+            ],
+        },
+    });
+    await assert.rejects(client.request('GetNowBlock2', {}));
+    assert.equal(userInterceptorRan, true);
+    client.close();
+});
+
+test('decode: a block is normalized once and shared, with identical content', () => {
+    const owner = lib.toAddressBytes(USDT);
+    const ext = {
+        txid: Buffer.alloc(32, 1),
+        transaction: {
+            raw_data: { contract: [{ type: 'TransferContract', parameter: { value: { owner_address: owner } } }] },
+            signature: [Buffer.alloc(65, 2)],
+            ret: [{ contractRet: 'SUCCESS' }],
+        },
+        internal_transactions: [{ caller_address: owner }],
+        logs: [],
+    };
+    const { decodeBlock } = require('../dist/src/codecs/decode.js');
+    const block = decodeBlock({ blockid: Buffer.alloc(32, 3), block_header: { raw_data: { number: '7' } }, transactions: [ext] });
+    const [tx] = block.transactions;
+    assert.equal(block.number, 7);
+    assert.equal(tx.txid, '01'.repeat(32));
+    assert.equal(tx.signatures[0], '02'.repeat(65));
+    assert.equal(tx.rawData.contract[0].parameter.value.owner_address, USDT);
+    assert.deepEqual(tx.internalTransactions, [{ caller_address: USDT }]);
+    assert.equal(tx.raw, block.raw.transactions[0]);
+    assert.equal(tx.rawData, block.raw.transactions[0].transaction.raw_data);
+});
