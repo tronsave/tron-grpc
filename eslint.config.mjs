@@ -2,8 +2,8 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-    // Generated protobuf code and build output are not linted.
-    { ignores: ['dist/**', 'node_modules/**', 'src/proto/**'] },
+    // Build output is not linted.
+    { ignores: ['dist/**', 'node_modules/**'] },
     js.configs.recommended,
     ...tseslint.configs.recommended,
     {

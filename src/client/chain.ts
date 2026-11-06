@@ -1,11 +1,12 @@
 import { TronClientGovernance } from './governance';
-import { parsePqCapabilities, type PqCapabilities, type Raw } from './helpers';
+import { parsePqCapabilities, type PqCapabilities } from './helpers';
+import type { ChainParameters, NodeInfo, NodeList, NumberMessage, PricesResponseMessage } from '../types/responses';
 
 /** Node + chain info reads. */
 export class TronClientChain extends TronClientGovernance {
-    /** Raw chain parameters (normalized, bytes-free). */
-    async getChainParameters(): Promise<Raw> {
-        return this.query('GetChainParameters', {});
+    /** The chain's governance parameters, as `{ key, value }` pairs. */
+    async getChainParameters(): Promise<ChainParameters> {
+        return this.query<ChainParameters>('GetChainParameters', {});
     }
 
     /**
@@ -21,42 +22,42 @@ export class TronClientChain extends TronClientGovernance {
     }
 
     /** List peer nodes known to the connected node. */
-    async listNodes(): Promise<Raw> {
-        return this.query('ListNodes', {});
+    async listNodes(): Promise<NodeList> {
+        return this.query<NodeList>('ListNodes', {});
     }
 
     /** Info about the connected node. */
-    async getNodeInfo(): Promise<Raw> {
-        return this.query('GetNodeInfo', {});
+    async getNodeInfo(): Promise<NodeInfo> {
+        return this.query<NodeInfo>('GetNodeInfo', {});
     }
 
     /** Total number of transactions ever processed. */
-    async totalTransaction(): Promise<Raw> {
-        return this.query('TotalTransaction', {});
+    async totalTransaction(): Promise<NumberMessage> {
+        return this.query<NumberMessage>('TotalTransaction', {});
     }
 
     /** Timestamp (ms) of the next maintenance / vote-counting cycle. */
-    async getNextMaintenanceTime(): Promise<Raw> {
-        return this.query('GetNextMaintenanceTime', {});
+    async getNextMaintenanceTime(): Promise<NumberMessage> {
+        return this.query<NumberMessage>('GetNextMaintenanceTime', {});
     }
 
     /** Total TRX burned (sun). */
-    async getBurnTrx(): Promise<Raw> {
-        return this.query('GetBurnTrx', {});
+    async getBurnTrx(): Promise<NumberMessage> {
+        return this.query<NumberMessage>('GetBurnTrx', {});
     }
 
     /** Historical bandwidth prices. */
-    async getBandwidthPrices(): Promise<Raw> {
-        return this.query('GetBandwidthPrices', {});
+    async getBandwidthPrices(): Promise<PricesResponseMessage> {
+        return this.query<PricesResponseMessage>('GetBandwidthPrices', {});
     }
 
     /** Historical energy prices. */
-    async getEnergyPrices(): Promise<Raw> {
-        return this.query('GetEnergyPrices', {});
+    async getEnergyPrices(): Promise<PricesResponseMessage> {
+        return this.query<PricesResponseMessage>('GetEnergyPrices', {});
     }
 
     /** Current memo fee schedule. */
-    async getMemoFee(): Promise<Raw> {
-        return this.query('GetMemoFee', {});
+    async getMemoFee(): Promise<PricesResponseMessage> {
+        return this.query<PricesResponseMessage>('GetMemoFee', {});
     }
 }

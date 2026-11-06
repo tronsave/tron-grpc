@@ -2,10 +2,20 @@ import { TronClientTransactions } from './transactions';
 import { buildTriggerRequest, decodeConstantResult, decodeReturn, intString, sunString, type Raw } from './helpers';
 import { toAddressBytes } from '../utils/address';
 import { toBytes } from '../utils/hex';
-import { fromBaseUnits } from '../utils/units';
+import { fromBaseUnits, toBaseUnits } from '../utils/units';
+import { applyTransactionOptions } from '../utils/transaction';
 import { normalizeDeep } from '../codecs/decode';
-import { encodeAddressParam, decodeUint256 } from '../codecs/abi';
-import type { ConstantCallResult, DeployContractInput, EstimateEnergyResult, Trc20Balance, TriggerContractInput } from '../types';
+import { encodeAddressParam, encodeUint256, decodeUint256 } from '../codecs/abi';
+import type {
+    BroadcastResult,
+    ConstantCallResult,
+    DeployContractInput,
+    EstimateEnergyResult,
+    SendTrc20Params,
+    Trc20Balance,
+    TriggerContractInput,
+} from '../types';
+import type { SmartContract, SmartContractDataWrapper, UnsignedTransactionExtention } from '../types/responses';
 
 /** Smart-contract calls, deployment, and TRC20 reads. */
 export class TronClientContracts extends TronClientTransactions {
@@ -19,11 +29,14 @@ export class TronClientContracts extends TronClientTransactions {
     /**
      * State-changing contract call builder (`TriggerContract`); returns the
      * unsigned TransactionExtention for signing + broadcasting.
+     *
+     * The gRPC builder has no fee-limit parameter and always returns
+     * `fee_limit = 0`: pass `input.feeLimit` (sun) to allow burning TRX for
+     * energy, or leave it unset to run purely on staked / rented energy.
      */
-    async triggerContract(input: TriggerContractInput): Promise<Raw> {
-        const res = await this.request<Raw>('TriggerContract', buildTriggerRequest(input));
-        this.assertExtentionOk('triggerContract', res);
-        return res;
+    async triggerContract(input: TriggerContractInput): Promise<UnsignedTransactionExtention> {
+        const res = await this.buildExtention('TriggerContract', buildTriggerRequest(input));
+        return input.feeLimit === undefined ? res : applyTransactionOptions(res, { feeLimit: input.feeLimit });
     }
 
     /** Estimate energy for a contract call (`EstimateEnergy`). */
@@ -62,8 +75,29 @@ export class TronClientContracts extends TronClientTransactions {
         return { raw: raw.toString(), decimals, value: fromBaseUnits(raw, decimals) };
     }
 
+    /**
+     * High-level TRC20 transfer: build `transfer(address,uint256)` -> sign -> broadcast.
+     *
+     * `success` means the node accepted the broadcast, not that the transfer
+     * executed: read the receipt (`getTransactionInfoById`) for the contract result.
+     * Without `feeLimit` the call burns no TRX and needs staked or rented energy.
+     */
+    async sendTrc20(params: SendTrc20Params): Promise<BroadcastResult> {
+        const amount =
+            params.decimals === undefined ? toBaseUnits(params.amount, 0) : toBaseUnits(params.amount, params.decimals);
+        if (amount <= 0n) throw new Error('Transfer amount must be positive');
+        const resolved = await this.readySigner(params.privateKey);
+        const extention = await this.triggerContract({
+            ownerAddress: params.from ?? resolved.signer.address,
+            contractAddress: params.contractAddress,
+            functionSelector: 'transfer(address,uint256)',
+            params: encodeAddressParam(params.to) + encodeUint256(amount),
+        });
+        return this.signResolvedAndBroadcast(extention, resolved, params);
+    }
+
     /** Deploy a smart contract (`DeployContract`). Returns the unsigned ext. */
-    async deployContract(input: DeployContractInput): Promise<Raw> {
+    async deployContract(input: DeployContractInput): Promise<UnsignedTransactionExtention> {
         const owner = toAddressBytes(input.ownerAddress);
         const newContract: Raw = {
             origin_address: owner,
@@ -81,11 +115,12 @@ export class TronClientContracts extends TronClientTransactions {
             contract.token_id = input.tokenId;
             contract.call_token_value = intString(input.callTokenValue ?? 0);
         }
-        return this.buildExtention('DeployContract', contract);
+        const res = await this.buildExtention('DeployContract', contract);
+        return input.feeLimit === undefined ? res : applyTransactionOptions(res, { feeLimit: input.feeLimit });
     }
 
     /** Update a contract's user-resource-percent setting (`UpdateSetting`). */
-    async updateSetting(ownerAddress: string, contractAddress: string, consumeUserResourcePercent: number): Promise<Raw> {
+    async updateSetting(ownerAddress: string, contractAddress: string, consumeUserResourcePercent: number): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('UpdateSetting', {
             owner_address: toAddressBytes(ownerAddress),
             contract_address: toAddressBytes(contractAddress),
@@ -94,7 +129,7 @@ export class TronClientContracts extends TronClientTransactions {
     }
 
     /** Update a contract's origin energy limit (`UpdateEnergyLimit`). */
-    async updateEnergyLimit(ownerAddress: string, contractAddress: string, originEnergyLimit: number | string | bigint): Promise<Raw> {
+    async updateEnergyLimit(ownerAddress: string, contractAddress: string, originEnergyLimit: number | string | bigint): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('UpdateEnergyLimit', {
             owner_address: toAddressBytes(ownerAddress),
             contract_address: toAddressBytes(contractAddress),
@@ -103,7 +138,7 @@ export class TronClientContracts extends TronClientTransactions {
     }
 
     /** Clear a contract's ABI (`ClearContractABI`). */
-    async clearContractABI(ownerAddress: string, contractAddress: string): Promise<Raw> {
+    async clearContractABI(ownerAddress: string, contractAddress: string): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('ClearContractABI', {
             owner_address: toAddressBytes(ownerAddress),
             contract_address: toAddressBytes(contractAddress),
@@ -111,12 +146,12 @@ export class TronClientContracts extends TronClientTransactions {
     }
 
     /** Get a contract's definition (`GetContract`). */
-    async getContract(contractAddress: string): Promise<Raw> {
-        return this.query('GetContract', { value: toAddressBytes(contractAddress) });
+    async getContract(contractAddress: string): Promise<SmartContract> {
+        return this.query<SmartContract>('GetContract', { value: toAddressBytes(contractAddress) });
     }
 
     /** Get a contract's runtime info incl. bytecode (`GetContractInfo`). */
-    async getContractInfo(contractAddress: string): Promise<Raw> {
-        return this.query('GetContractInfo', { value: toAddressBytes(contractAddress) });
+    async getContractInfo(contractAddress: string): Promise<SmartContractDataWrapper> {
+        return this.query<SmartContractDataWrapper>('GetContractInfo', { value: toAddressBytes(contractAddress) });
     }
 }

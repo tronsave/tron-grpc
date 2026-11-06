@@ -1,22 +1,33 @@
 import { TronClientAssets } from './assets';
-import { intString, sunString, type IntLike, type Raw } from './helpers';
+import { intString, sunString, type IntLike } from './helpers';
 import { toAddressBytes } from '../utils/address';
 import { hexToBytesSafe, longToBytesBE } from '../utils/hex';
 import type { DecimalLike } from '../utils/units';
+import type {
+    Exchange,
+    ExchangeList,
+    MarketOrder,
+    MarketOrderList,
+    MarketOrderPairList,
+    MarketPriceList,
+    Proposal,
+    ProposalList,
+    UnsignedTransactionExtention,
+} from '../types/responses';
 
 /** On-chain governance: proposals, exchanges, storage market, and the order book. */
 export class TronClientGovernance extends TronClientAssets {
     // -- Proposals -------------------------------------------------------
 
     /** Create a parameter-change proposal (`ProposalCreate`). */
-    async proposalCreate(ownerAddress: string, parameters: Record<number, IntLike>): Promise<Raw> {
+    async proposalCreate(ownerAddress: string, parameters: Record<number, IntLike>): Promise<UnsignedTransactionExtention> {
         const map: Record<string, string> = {};
         for (const [k, v] of Object.entries(parameters)) map[k] = intString(v);
         return this.buildExtention('ProposalCreate', { owner_address: toAddressBytes(ownerAddress), parameters: map });
     }
 
     /** Approve or un-approve a proposal (`ProposalApprove`). */
-    async proposalApprove(ownerAddress: string, proposalId: number, isAddApproval: boolean): Promise<Raw> {
+    async proposalApprove(ownerAddress: string, proposalId: number, isAddApproval: boolean): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('ProposalApprove', {
             owner_address: toAddressBytes(ownerAddress),
             proposal_id: proposalId,
@@ -25,23 +36,23 @@ export class TronClientGovernance extends TronClientAssets {
     }
 
     /** Delete a proposal (`ProposalDelete`). */
-    async proposalDelete(ownerAddress: string, proposalId: number): Promise<Raw> {
+    async proposalDelete(ownerAddress: string, proposalId: number): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('ProposalDelete', { owner_address: toAddressBytes(ownerAddress), proposal_id: proposalId });
     }
 
     /** List all proposals. */
-    async listProposals(): Promise<Raw> {
-        return this.query('ListProposals', {});
+    async listProposals(): Promise<ProposalList> {
+        return this.query<ProposalList>('ListProposals', {});
     }
 
     /** Paginated list of proposals. */
-    async getPaginatedProposalList(offset: number, limit: number): Promise<Raw> {
-        return this.query('GetPaginatedProposalList', { offset, limit });
+    async getPaginatedProposalList(offset: number, limit: number): Promise<ProposalList> {
+        return this.query<ProposalList>('GetPaginatedProposalList', { offset, limit });
     }
 
     /** Get a proposal by id. */
-    async getProposalById(id: number): Promise<Raw> {
-        return this.query('GetProposalById', { value: longToBytesBE(id) });
+    async getProposalById(id: number): Promise<Proposal> {
+        return this.query<Proposal>('GetProposalById', { value: longToBytesBE(id) });
     }
 
     // -- Exchanges (Bancor) ---------------------------------------------
@@ -53,7 +64,7 @@ export class TronClientGovernance extends TronClientAssets {
         firstTokenBalance: IntLike,
         secondTokenId: string,
         secondTokenBalance: IntLike
-    ): Promise<Raw> {
+    ): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('ExchangeCreate', {
             owner_address: toAddressBytes(ownerAddress),
             first_token_id: Buffer.from(firstTokenId, 'utf8'),
@@ -64,7 +75,7 @@ export class TronClientGovernance extends TronClientAssets {
     }
 
     /** Inject liquidity into an exchange (`ExchangeInject`). */
-    async exchangeInject(ownerAddress: string, exchangeId: number, tokenId: string, quant: IntLike): Promise<Raw> {
+    async exchangeInject(ownerAddress: string, exchangeId: number, tokenId: string, quant: IntLike): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('ExchangeInject', {
             owner_address: toAddressBytes(ownerAddress),
             exchange_id: exchangeId,
@@ -74,7 +85,7 @@ export class TronClientGovernance extends TronClientAssets {
     }
 
     /** Withdraw liquidity from an exchange (`ExchangeWithdraw`). */
-    async exchangeWithdraw(ownerAddress: string, exchangeId: number, tokenId: string, quant: IntLike): Promise<Raw> {
+    async exchangeWithdraw(ownerAddress: string, exchangeId: number, tokenId: string, quant: IntLike): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('ExchangeWithdraw', {
             owner_address: toAddressBytes(ownerAddress),
             exchange_id: exchangeId,
@@ -90,7 +101,7 @@ export class TronClientGovernance extends TronClientAssets {
         tokenId: string,
         quant: IntLike,
         expected: IntLike
-    ): Promise<Raw> {
+    ): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('ExchangeTransaction', {
             owner_address: toAddressBytes(ownerAddress),
             exchange_id: exchangeId,
@@ -101,34 +112,34 @@ export class TronClientGovernance extends TronClientAssets {
     }
 
     /** List all exchanges. */
-    async listExchanges(): Promise<Raw> {
-        return this.query('ListExchanges', {});
+    async listExchanges(): Promise<ExchangeList> {
+        return this.query<ExchangeList>('ListExchanges', {});
     }
 
     /** Paginated list of exchanges. */
-    async getPaginatedExchangeList(offset: number, limit: number): Promise<Raw> {
-        return this.query('GetPaginatedExchangeList', { offset, limit });
+    async getPaginatedExchangeList(offset: number, limit: number): Promise<ExchangeList> {
+        return this.query<ExchangeList>('GetPaginatedExchangeList', { offset, limit });
     }
 
     /** Get an exchange by id. */
-    async getExchangeById(id: number): Promise<Raw> {
-        return this.query('GetExchangeById', { value: longToBytesBE(id) });
+    async getExchangeById(id: number): Promise<Exchange> {
+        return this.query<Exchange>('GetExchangeById', { value: longToBytesBE(id) });
     }
 
     // -- Storage market --------------------------------------------------
 
     /** Buy storage with TRX (`BuyStorage`). `amount` is TRX. */
-    async buyStorage(ownerAddress: string, amount: DecimalLike): Promise<Raw> {
+    async buyStorage(ownerAddress: string, amount: DecimalLike): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('BuyStorage', { owner_address: toAddressBytes(ownerAddress), quant: sunString(amount) });
     }
 
     /** Buy a number of storage bytes (`BuyStorageBytes`). */
-    async buyStorageBytes(ownerAddress: string, bytes: IntLike): Promise<Raw> {
+    async buyStorageBytes(ownerAddress: string, bytes: IntLike): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('BuyStorageBytes', { owner_address: toAddressBytes(ownerAddress), bytes: intString(bytes) });
     }
 
     /** Sell storage bytes back for TRX (`SellStorage`). */
-    async sellStorage(ownerAddress: string, storageBytes: IntLike): Promise<Raw> {
+    async sellStorage(ownerAddress: string, storageBytes: IntLike): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('SellStorage', { owner_address: toAddressBytes(ownerAddress), storage_bytes: intString(storageBytes) });
     }
 
@@ -141,7 +152,7 @@ export class TronClientGovernance extends TronClientAssets {
         sellTokenQuantity: IntLike,
         buyTokenId: string,
         buyTokenQuantity: IntLike
-    ): Promise<Raw> {
+    ): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('MarketSellAsset', {
             owner_address: toAddressBytes(ownerAddress),
             sell_token_id: Buffer.from(sellTokenId, 'utf8'),
@@ -152,7 +163,7 @@ export class TronClientGovernance extends TronClientAssets {
     }
 
     /** Cancel a market order (`MarketCancelOrder`). `orderId` is hex. */
-    async marketCancelOrder(ownerAddress: string, orderId: string): Promise<Raw> {
+    async marketCancelOrder(ownerAddress: string, orderId: string): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('MarketCancelOrder', {
             owner_address: toAddressBytes(ownerAddress),
             order_id: hexToBytesSafe(orderId),
@@ -160,33 +171,33 @@ export class TronClientGovernance extends TronClientAssets {
     }
 
     /** Get a market order by id (hex). */
-    async getMarketOrderById(orderId: string): Promise<Raw> {
-        return this.query('GetMarketOrderById', { value: hexToBytesSafe(orderId) });
+    async getMarketOrderById(orderId: string): Promise<MarketOrder> {
+        return this.query<MarketOrder>('GetMarketOrderById', { value: hexToBytesSafe(orderId) });
     }
 
     /** List an account's market orders. */
-    async getMarketOrderByAccount(address: string): Promise<Raw> {
-        return this.query('GetMarketOrderByAccount', { value: toAddressBytes(address) });
+    async getMarketOrderByAccount(address: string): Promise<MarketOrderList> {
+        return this.query<MarketOrderList>('GetMarketOrderByAccount', { value: toAddressBytes(address) });
     }
 
     /** Get the price book for a token pair. */
-    async getMarketPriceByPair(sellTokenId: string, buyTokenId: string): Promise<Raw> {
-        return this.query('GetMarketPriceByPair', {
+    async getMarketPriceByPair(sellTokenId: string, buyTokenId: string): Promise<MarketPriceList> {
+        return this.query<MarketPriceList>('GetMarketPriceByPair', {
             sell_token_id: Buffer.from(sellTokenId, 'utf8'),
             buy_token_id: Buffer.from(buyTokenId, 'utf8'),
         });
     }
 
     /** List orders for a token pair. */
-    async getMarketOrderListByPair(sellTokenId: string, buyTokenId: string): Promise<Raw> {
-        return this.query('GetMarketOrderListByPair', {
+    async getMarketOrderListByPair(sellTokenId: string, buyTokenId: string): Promise<MarketOrderList> {
+        return this.query<MarketOrderList>('GetMarketOrderListByPair', {
             sell_token_id: Buffer.from(sellTokenId, 'utf8'),
             buy_token_id: Buffer.from(buyTokenId, 'utf8'),
         });
     }
 
     /** List all tradable market pairs. */
-    async getMarketPairList(): Promise<Raw> {
-        return this.query('GetMarketPairList', {});
+    async getMarketPairList(): Promise<MarketOrderPairList> {
+        return this.query<MarketOrderPairList>('GetMarketPairList', {});
     }
 }
