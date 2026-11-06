@@ -38,7 +38,7 @@ Questions or feedback are welcome
   - [Utilities](#utilities)
 - [Sending TRX](#sending-trx)
 - [Post-quantum signatures (TIP-899)](#post-quantum-signatures-tip-899)
-- [TRC20 balances](#trc20-balances)
+- [TRC20 balances](#trc20-balances) · [sending TRC20 + fee limit](#sending-trc20-and-the-fee-limit)
 - [Environment variables](#environment-variables)
 - [Running the tests](#running-the-tests)
 - [Updating the protos](#updating-the-protos)
@@ -104,12 +104,64 @@ Create a client by network or by explicit host:
 ```ts
 const client = TronGrpcClient.fromNetwork('mainnet'); // 'mainnet' | 'nile' | 'shasta'
 // or
-const client = new TronGrpcClient('grpc.trongrid.io:50051', {
+const client = new TronGrpcClient('grpc.trongrid.io:443', {
   headers: { 'TRON-PRO-API-KEY': '…' },              // added to every call's metadata
   grpcOptions: { 'grpc.keepalive_time_ms': 30000 },  // merged over tuned defaults
   rateLimitRetry: { maxRetries: 5, baseDelayMs: 500 }, // default; `false` disables
+  timeoutMs: 30000,                                  // default deadline per call
+  channels: 1,                                       // HTTP/2 connections to spread calls over
+  // tls: true,                                      // default: on when the port is 443
+  // credentials: grpc.credentials.createSsl(ca),    // custom CA / mTLS; overrides `tls`
 });
 ```
+
+#### TLS
+
+`fromNetwork('mainnet')` connects to `grpc.trongrid.io:443` over TLS. With an
+explicit host, TLS is on when the port is `443` and off otherwise; set `tls` or pass
+`credentials` to decide yourself.
+
+java-tron's own gRPC port (`50051`) is **plaintext**, and so are TronGrid's Nile and
+Shasta endpoints — they offer no TLS port. On a plaintext connection anyone on the
+network path can read your API key and rewrite what the node answers; the client
+logs a warning when `headers` are sent that way. Use TLS, a loopback node, or a
+private network for anything that matters.
+
+#### Deadlines and cancellation
+
+Every call has a deadline (`timeoutMs`, 30s by default, retries included).
+`withCallOptions` returns a view of the same client — same connection — whose calls
+use different options; `request()` takes them per call:
+
+```ts
+const quick = client.withCallOptions({ timeoutMs: 3000 });
+await quick.getNowBlock();                               // DEADLINE_EXCEEDED after 3s
+
+const ac = new AbortController();
+const blocks = client.withCallOptions({ timeoutMs: 120000, signal: ac.signal }).getBlockByLatestNum(60);
+ac.abort();                                              // CANCELLED; also stops pending retries
+```
+
+One HTTP/2 connection multiplexes about 100 concurrent calls. `channels: n` opens
+`n` connections and spreads calls round-robin — only useful when you hold more than
+that in flight.
+
+#### Solidified state (`WalletSolidity`)
+
+`TronGrpcClient.solidity(network)` talks to the node's `WalletSolidity` service,
+which answers from blocks that are **irreversible** (confirmed by 2/3 of the SRs,
+roughly 18 blocks behind the head). Use it to decide that a deposit is final:
+
+```ts
+const solid = TronGrpcClient.solidity('mainnet');
+const info = await solid.getTransactionInfoById(txid);
+if (info.found) { /* in a solidified block: cannot be reorganized away */ }
+```
+
+It exposes the read methods the service implements (`getAccount`, `getNowBlock`,
+`getBlockByNum`, `getTransactionById`, `getTransactionInfoById`,
+`triggerConstantContract`, `getTrc20Balance`, delegation / asset / market reads).
+It has no builders and no broadcast.
 
 Calls rejected by rate limiting (TronGrid's HTTP 429 without an API key, or
 `RESOURCE_EXHAUSTED`) are retried with exponential backoff and jitter. gRPC's own
@@ -158,17 +210,60 @@ connectivity state transitions.
 | `getTransactionInfoById(txid)` | `TransactionInfoResult` | Receipt: block, fee, result, **event `logs`**, `internalTransactions`, `resMessage`, + `raw`. |
 | `getTrc20Balance(contract, owner, decimals?)` | `Trc20Balance` | `balanceOf` via constant call. |
 | `triggerConstantContract(input)` | `ConstantCallResult` | Read-only call + `logs`, `energyPenalty`, `internalTransactions`, + `raw`. |
-| `triggerContract(input)` | `object` | Unsigned state-changing call (`TransactionExtention`). |
+| `triggerContract(input)` | `UnsignedTransactionExtention` | Unsigned state-changing call. `input.feeLimit` (sun) sets the fee limit. |
 | `estimateEnergy(input)` | `EstimateEnergyResult` | Energy estimate + `result`, + `raw`. |
-| `createTransaction(from, to, amountTrx)` | `object` | Unsigned TRX transfer. |
-| `signAndBroadcast(extention, privateKey)` | `BroadcastResult` | Sign + broadcast. |
-| `sendTrx({ from?, to, amount, privateKey })` | `BroadcastResult` | Create → sign → broadcast. |
-| `getChainParameters()` | `object` | Chain parameters (normalized). |
-| `request<T>(method, message)` | `Promise<T>` | Escape hatch for any Wallet RPC. |
+| `createTransaction(from, to, amountTrx)` | `UnsignedTransactionExtention` | Unsigned TRX transfer. Every builder method returns this type. |
+| `signAndBroadcast(extention, key, options?)` | `BroadcastResult` | Sign + broadcast. `options`: `feeLimit`, `memo`, `expiration`, `permissionId`. |
+| `signTransaction(extention, key)` | same as `extention` | Sign without broadcasting (multi-sig: once per signer). |
+| `broadcastTransaction(signed)` | `BroadcastResult` | Broadcast a signed transaction. |
+| `sendTrx({ from?, to, amount, privateKey, memo? })` | `BroadcastResult` | Create → sign → broadcast. |
+| `sendTrc20({ contractAddress, to, amount, decimals?, feeLimit?, privateKey })` | `BroadcastResult` | TRC20 `transfer` → sign → broadcast. |
+| `getChainParameters()` | `ChainParameters` | `chainParameter[]` of `{ key, value }`. |
+| `getBlockByLatestNum(n)` / `getBlockByLimitNext(start, end)` | `BlockListExtention` | A run of blocks: `block[]` of `BlockExtention`. |
+| `getBlock(idOrNum, detail?)` | `BlockExtention` | Header + id; transactions only with `detail`. |
+| `getTransactionInfoByBlockNum(num)` | `TransactionInfoList` | Every receipt of a block (`TransactionInfo[]`). |
+| `getDelegatedResourceV2(from, to)` | `DelegatedResourceList` | Stake 2.0 delegations between two accounts. |
+| `listWitnesses()` | `WitnessList` | Every witness: votes, blocks produced / missed, `isJobs`. |
+| `getContract(address)` | `SmartContract` | Deployer, ABI, bytecode, energy settings. |
+| `request<T>(method, message, callOptions?)` | `Promise<T>` | Escape hatch for any Wallet RPC. |
+| `withCallOptions({ timeoutMs?, signal? })` | client | Same connection, different deadline / abort signal. |
 | `isReady` / `close()` | `boolean` / `void` | Connectivity flag / shutdown. |
 
 All addresses passed to any method may be base58 or hex; all addresses returned
 are base58. All `*Sun` / `balance` / `fee` fields are exact integer strings.
+
+#### Typed responses
+
+The other read methods return the node's message under its proto name, and every
+one of those types is exported — [Implemented methods](#implemented-methods) lists
+which method returns which:
+
+```ts
+import type { Witness } from 'tron-grpc';
+
+const { chainParameter } = await client.getChainParameters();
+const energyFee = chainParameter.find(p => p.key === 'getEnergyFee')?.value; // "100" (sun per energy)
+
+const { witnesses } = await client.listWitnesses();
+const producers: Witness[] = witnesses.filter(w => w.isJobs); // the 27 active SRs
+
+const { block } = await client.getBlockByLatestNum(2);
+block[0].block_header?.raw_data?.number;                      // "87755597" — int64 as a string
+```
+
+The types describe the message as the client returns it, not the wire format:
+
+- field names are the `.proto`'s own (`frozen_balance_for_energy`, `voteCount`, …);
+- `int64` is a decimal string, `int32` a number, an enum its name;
+- `bytes` is a base58 address when it holds one and lowercase hex otherwise — a TRC10
+  `name` is hex-encoded UTF-8;
+- every field is present; an unset sub-message is `null`. A node answers "not found"
+  with an all-default message rather than an error, so check a key field first.
+
+Builder methods return `UnsignedTransactionExtention` — the same
+`TransactionExtention` message with its `bytes` fields left as raw `Uint8Array`s,
+since those exact bytes are what gets signed and broadcast. Shielded RPCs still
+return `Record<string, unknown>`; every response type stays assignable to it.
 
 ### Utilities
 
@@ -188,6 +283,7 @@ import {
 trxToSun('1.5');              // 1500000n
 sunToTrx('11223430628613');   // "11223430.628613"
 trxToSun('1.1234567');        // throws — exceeds TRX's 6 decimals
+trxToSun(1.1234567);          // throws too: a float is never silently rounded
 
 isAddress('TWd4WrZ9wn84f5x1hZhL4DHvk738ns5jwb');    // true (checksum-validated)
 toHexAddress('TWd4WrZ9wn84f5x1hZhL4DHvk738ns5jwb'); // "41e3...."
@@ -195,6 +291,11 @@ toHexAddress('TWd4WrZ9wn84f5x1hZhL4DHvk738ns5jwb'); // "41e3...."
 privateKeyToAddress('a5a5…57e3'); // "TN3EwEhs2fHaCu55srzPNanWxJjEtQUPBC"
 const { privateKey, address } = fromMnemonic(mnemonic, "m/44'/195'/0'/0/0");
 ```
+
+`fromMnemonic` is BIP-39 + BIP-32 implemented in this library on top of
+`@noble/hashes` / `@noble/curves` (also exported as `mnemonicToSeed` and
+`derivePrivateKey`), and checked against the standards' test vectors. It does not
+validate the words against a wordlist or checksum — only the word count.
 
 ---
 
@@ -223,9 +324,66 @@ const res = await client.signAndBroadcast(ext, privateKey);  // sign + broadcast
 `privateKey` also accepts a post-quantum keypair — see
 [Post-quantum signatures](#post-quantum-signatures-tip-899).
 
-> The node-built `raw_data` is re-broadcast verbatim and the node-computed
-> `txid` is what gets signed, so the signature matches `java-tron`'s exact
-> serialization (verified by a successful testnet broadcast in the test suite).
+### What gets signed
+
+A TRON node builds the unsigned transaction for you. This library does not take
+that on trust — before a signature is made:
+
+1. **The transaction must be the one you asked for.** Every builder method
+   (`createTransaction`, `triggerContract`, `freezeBalanceV2`, …) compares the
+   contract the node returned with the request, byte for byte, and rejects a
+   transaction that adds a fee limit, memo or permission you did not request. A
+   node that answers a transfer to Alice with a transfer to Mallory gets
+   `refusing the transaction the node built`.
+2. **The txid is recomputed locally** as `SHA-256(raw_data)`. The id the node
+   reports is never signed; if it disagrees, signing throws.
+
+Check 1 can be switched off with `verifyBuiltTransactions: false` (for a node whose
+builders legitimately differ). Check 2 cannot.
+
+### Fee limit, memo, expiration, permission
+
+The gRPC builders have no parameter for these, so they are applied locally and the
+txid re-derived:
+
+```ts
+const ext = await client.createTransaction(from, to, '1.5');
+await client.signAndBroadcast(ext, privateKey, {
+  memo: 'invoice 42',                  // charged the chain's memo fee
+  expiration: Date.now() + 10 * 60e3,  // default ~60s; nodes accept up to 24h
+  permissionId: 2,                     // sign with an active permission (multi-sig)
+});
+// or, without signing:  applyTransactionOptions(ext, { feeLimit: 100_000_000 })
+```
+
+### Multi-sig
+
+```ts
+const ext = await client.createTransaction(owner, to, '1');
+applyTransactionOptions(ext, { permissionId: 2, expiration: Date.now() + 3600e3 });
+await client.signTransaction(ext, keyA);       // appends a signature
+await client.signTransaction(ext, keyB);       // ECDSA and PQ signers can mix
+await client.broadcastTransaction(ext);
+```
+
+### Keys that never enter the process (KMS / HSM / hardware wallet)
+
+Anywhere a key is accepted, an `ExternalSigner` is too. It receives the transaction
+and the locally computed txid, appends its signature, and may be async; the client
+then verifies that a valid signature by `address` is present before broadcasting.
+
+```ts
+const kms: ExternalSigner = {
+  keyType: 'ECDSA',
+  address: 'T…',                                   // the key's address
+  async signTransaction(tx, txid) {
+    const sig = await myKms.sign(txid);            // 65 bytes: r ‖ s ‖ v (27/28)
+    tx.signature = [...((tx.signature as Uint8Array[]) ?? []), sig];
+    return tx;
+  },
+};
+await client.sendTrx({ to, amount: '1', privateKey: kms });
+```
 
 ---
 
@@ -385,6 +543,25 @@ at `0x02000016` (`msg(32) ‖ sig(666, zero-padded) ‖ pk(896)`), and
 const { raw, value, decimals } = await client.getTrc20Balance(usdtContract, holder, 6);
 ```
 
+### Sending TRC20, and the fee limit
+
+```ts
+const res = await client.sendTrc20({
+  contractAddress: usdtContract,
+  to: 'TBBjHvgPQ9q4SNs9rXoakYkYRjgJZPaZcu',
+  amount: '12.5', decimals: 6,   // or an integer in base units, without `decimals`
+  feeLimit: 30_000_000,          // sun: burn at most 30 TRX for energy
+  privateKey,
+});
+// `success` = the node accepted the broadcast. Whether the transfer executed is in
+// the receipt: (await client.getTransactionInfoById(res.txid)).receipt.result
+```
+
+A contract call built over gRPC always comes back with `fee_limit = 0`. Left that
+way it burns no TRX and succeeds only if the sender has enough **staked or rented
+energy** — otherwise it fails with `OUT_OF_ENERGY`. Set `feeLimit` (in **sun**) to
+allow burning TRX; the same field exists on `triggerContract` and `deployContract`.
+
 For arbitrary calls, use `triggerConstantContract` with either a
 `functionSelector` + ABI-encoded `params`, or pre-encoded `data`:
 
@@ -457,11 +634,11 @@ from the [Nile faucet](https://nileex.io/join/getJoinPage); one run spends ~120 
 ## Updating the protos
 
 The `.proto` files are vendored from
-[tronprotocol/protocol](https://github.com/tronprotocol/protocol) and the TypeScript
-bindings are generated with `protoc` (`brew install protobuf`):
+[tronprotocol/protocol](https://github.com/tronprotocol/protocol) and loaded at
+runtime, so there is no code generation step:
 
 ```bash
-npm run update-proto       # sync-proto (fetch master) + gen-proto (regenerate .ts)
+npm run sync-proto         # fetch master
 npm run sync-proto v4.8.2  # or pin a tag / branch / commit
 ```
 
@@ -476,10 +653,42 @@ real mainnet transactions and catches any proto change that breaks txid computat
 
 ## Security
 
+**Trust model.** The node is treated as untrusted for anything that gets signed:
+node-built transactions are checked against the request and their id recomputed
+locally (see [What gets signed](#what-gets-signed)), and `verifyTransactionById`
+recomputes the id of what the node returns. Query results are *not* verifiable
+this way — a balance or a receipt is whatever the node says. For value-bearing
+decisions, read from a node you trust, over TLS, and prefer
+[solidified state](#solidified-state-walletsolidity).
+
+**Transport.** Mainnet defaults to TLS. Plaintext endpoints (port 50051, and the
+public Nile/Shasta hosts) expose API keys and allow tampering in transit — see
+[TLS](#tls).
+
+**Keys.** A private key passed as a hex string lives in process memory for as long
+as your code holds it, and JavaScript cannot wipe a string. For keys that matter,
+use an [`ExternalSigner`](#keys-that-never-enter-the-process-kms--hsm--hardware-wallet)
+so the key stays in a KMS/HSM.
+
+**Post-quantum signing is not side-channel hardened.** FN-DSA-512 and ML-DSA-44 come
+from `@noble/post-quantum`, which states that it has not been independently audited
+and does not claim constant-time execution; Falcon signing in particular uses
+floating-point and data-dependent sampling. Sign with PQ keys only on machines where
+an attacker cannot observe timing or share the CPU.
+
+**Amounts.** Amounts are parsed with BigInt and never rounded: a value with more
+precision than the token has throws, whether it is given as a string or a float.
+
+**Dependencies.** Six runtime packages: `@grpc/grpc-js`, `@grpc/proto-loader`,
+`protobufjs`, and `@noble/{curves,hashes,post-quantum}`. Base58 and BIP-39/BIP-32
+derivation are implemented here rather than pulled in. The published `dist/` is
+plain compiled TypeScript, not minified, so it can be read and diffed.
+
+**Secrets in this repo.**
+
 - **Never commit secrets.** `test.ts` (which holds a key + endpoint) and `.env`
   are listed in [`.gitignore`](.gitignore). Only `.env.example` is committed.
-- Supply the private key and API key via environment variables (see above); the
-  committed fallbacks exist only for the original throwaway test account.
+- Supply the private key and API key via environment variables (see above).
 - The broadcast test is hard-coded to **refuse `mainnet`** and only runs against
   Nile/Shasta, so a misconfigured key can never spend real TRX.
 
@@ -507,15 +716,19 @@ src/
   utils/
     address.ts            base58 / hex addresses (checksum-validated)
     units.ts, hex.ts      TRX <-> sun, hex helpers
+    base58.ts             base58 encode/decode
     crypto.ts             secp256k1 (ECDSA) keys, signing, recovery
+    hd.ts                 BIP-39 seed + BIP-32 private derivation
     pq.ts                 TIP-899 post-quantum: FN-DSA-512 + ML-DSA-44, envelopes, precompiles
     signer.ts             Signer strategies chosen by key type (ECDSA / Falcon / ML-DSA)
     verify.ts             computeTxid + verifyTransaction (ECDSA + PQ)
-  proto/                  vendored TRON .proto + generated .ts
+    transaction.ts        build guard, local txid check, fee limit / memo / expiry / permission
+  proto/                  vendored TRON .proto (loaded at runtime)
   logger.ts               opt-in diagnostic logging
   network.ts              TRON_NETWORKS
   protoLoader.ts          single proto-loader package definition
-  types.ts                public typed shapes
+  types.ts                public typed shapes (inputs + decoded views)
+  types/responses.ts      response messages of the read / builder methods, as normalized
   index.ts                public barrel
 index.ts                  package root barrel (re-exports src + compat aliases)
 scripts/sync-proto.ts     vendors upstream protos (see Updating the protos)
@@ -542,9 +755,8 @@ TRON `.proto` definitions (vendored under [`src/proto/`](src/proto)).
   public API.
 
 The alternative, `ts-proto`, would generate a typed runtime but require a build
-step and a transport rewrite; the generated message classes are already vendored
-here for reference, but the transport deliberately stays on the loader-based path
-for flexibility.
+step and a transport rewrite; the transport deliberately stays on the loader-based
+path for flexibility.
 
 ---
 
@@ -562,7 +774,8 @@ named method is still reachable through the typed `request<T>()` escape hatch.
 - **Accounts:** `getAccount`, `getBalance`, `getAccountResources`, `getAccountById`,
   `getAccountNet`, `getAccountBalance`, `updateAccount`, `setAccountId`,
   `createAccount`, `accountPermissionUpdate`, `getRewardInfo`, `getBrokerageInfo`.
-- **Transfers / transactions:** `createTransaction`, `signAndBroadcast`, `sendTrx`,
+- **Transfers / transactions:** `createTransaction`, `signAndBroadcast`, `signTransaction`,
+  `broadcastTransaction`, `sendTrx`, `sendTrc20`,
   `createCommonTransaction`, `getTransactionById`, `getTransactionInfoById`,
   `getTransactionInfoByBlockNum`, `getTransactionSignWeight`,
   `getTransactionApprovedList`, `getTransactionFromPending`,
@@ -602,6 +815,39 @@ named method is still reachable through the typed `request<T>()` escape hatch.
 helpers (`encodeFunctionData`, `encodeAddressParam`, `encodeUint256`,
 `decodeUint256`, `functionSelector`, `stripHexPrefix`, `hexToBytesSafe`,
 `longToBytesBE`).
+
+**Return types.** Methods not listed here return a decoded view (see the
+[API table](#client)); every type is exported from the package root.
+
+| Returns | Methods |
+| --- | --- |
+| `UnsignedTransactionExtention` | every builder: `createTransaction`, `triggerContract`, `deployContract`, `freezeBalanceV2`, `delegateResource`, `voteWitnessAccount`, `transferAsset`, `proposalCreate`, … |
+| `Block` | `getBlockById` |
+| `BlockExtention` | `getBlock` |
+| `BlockListExtention` | `getBlockByLatestNum`, `getBlockByLimitNext` |
+| `BlockBalanceTrace` | `getBlockBalanceTrace` |
+| `Account` | `getAccountById` |
+| `AccountNetMessage` | `getAccountNet` |
+| `AccountBalanceResponse` | `getAccountBalance` |
+| `TransactionInfoList` | `getTransactionInfoByBlockNum` |
+| `TransactionSignWeight` / `TransactionApprovedList` | `getTransactionSignWeight` / `getTransactionApprovedList` |
+| `Transaction` / `TransactionIdList` | `getTransactionFromPending` / `getTransactionListFromPending` |
+| `DelegatedResourceList` | `getDelegatedResource`, `getDelegatedResourceV2` |
+| `DelegatedResourceAccountIndex` | `getDelegatedResourceAccountIndex`, `getDelegatedResourceAccountIndexV2` |
+| `CanDelegatedMaxSizeResponseMessage`, `GetAvailableUnfreezeCountResponseMessage`, `CanWithdrawUnfreezeAmountResponseMessage` | `getCanDelegatedMaxSize`, `getAvailableUnfreezeCount`, `getCanWithdrawUnfreezeAmount` |
+| `SmartContract` / `SmartContractDataWrapper` | `getContract` / `getContractInfo` |
+| `WitnessList` | `listWitnesses`, `getPaginatedNowWitnessList` |
+| `AssetIssueContract` | `getAssetIssueByName`, `getAssetIssueById` |
+| `AssetIssueList` | `getAssetIssueByAccount`, `getAssetIssueListByName`, `getAssetIssueList`, `getPaginatedAssetIssueList` |
+| `Proposal` / `ProposalList` | `getProposalById` / `listProposals`, `getPaginatedProposalList` |
+| `Exchange` / `ExchangeList` | `getExchangeById` / `listExchanges`, `getPaginatedExchangeList` |
+| `MarketOrder` / `MarketOrderList` | `getMarketOrderById` / `getMarketOrderByAccount`, `getMarketOrderListByPair` |
+| `MarketPriceList` / `MarketOrderPairList` | `getMarketPriceByPair` / `getMarketPairList` |
+| `ChainParameters` | `getChainParameters` |
+| `NodeList` / `NodeInfo` | `listNodes` / `getNodeInfo` |
+| `PricesResponseMessage` | `getBandwidthPrices`, `getEnergyPrices`, `getMemoFee` |
+| `NumberMessage` (`{ num }`) | `getRewardInfo`, `getBrokerageInfo`, `getTransactionCountByBlockNum`, `getPendingSize`, `totalTransaction`, `getNextMaintenanceTime`, `getBurnTrx` |
+| `Record<string, unknown>` | the shielded RPCs |
 
 > Deprecated v1 duplicates that return a bare `Transaction` (e.g. `CreateTransaction`,
 > legacy `FreezeBalance`) are intentionally not wrapped — their `…2` /

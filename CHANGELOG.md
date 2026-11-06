@@ -5,6 +5,114 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-11-06
+
+### Security
+
+- **A node-built transaction is no longer signed on trust.** Previously `sendTrx` /
+  `signAndBroadcast` signed whatever `txid` the node returned, without checking it or
+  the transaction it came with: a compromised node — or anyone on a plaintext network
+  path — could answer a transfer request with a different transaction, or with the id
+  of one. Now:
+  - every builder method compares the contract the node returned with the request,
+    byte for byte, and rejects a transaction carrying a fee limit, memo, permission or
+    extra contract that was not requested (`refusing the transaction the node built`).
+    Opt out with the `verifyBuiltTransactions: false` client option;
+  - the txid is always recomputed locally as `SHA-256(raw_data)` before signing, and a
+    mismatch with the extention's own `txid` throws (`Refusing to sign`). No opt-out.
+- **TLS.** The transport was hard-coded to plaintext, so API keys travelled in the
+  clear. New `tls` / `credentials` client options; TLS is on by default when the port
+  is `443`. `TRON_NETWORKS.mainnet.grpcHost` is now `grpc.trongrid.io:443` (TronGrid
+  offers no TLS port for Nile or Shasta, which stay on plaintext 50051). The client
+  warns when `headers` are sent over a plaintext connection to a remote host.
+- `verifyTransactionById` recomputes the id of the transaction the node returns and
+  rejects a mismatch, instead of checking signatures against the id that was asked for.
+- **Amounts given as a float are no longer silently rounded.** `trxToSun(0.1234567)`
+  returned 123457 sun and `trxToSun(1e-7)` returned 0; both now throw, as the string
+  forms always did. `toBaseUnits(0.1, 18)` returned `100000000000000006`; it now
+  returns exactly `10^17`.
+- `toAddressBytes` validates raw `Uint8Array` input (21 bytes, `0x41` prefix) instead
+  of passing any byte string through.
+- `ExternalSigner`: `sendTrx`, `sendTrc20`, `signTransaction` and `signAndBroadcast`
+  accept a signer object in place of a key, so keys can stay in a KMS / HSM / hardware
+  wallet. It may be async; its signature is verified locally before broadcast.
+
+### Added
+
+- **Fee limit, memo, expiration, permission id.** The gRPC builders cannot set these
+  (a node-built contract call always has `fee_limit = 0`, so it only ran on staked or
+  rented energy). `applyTransactionOptions(extention, { feeLimit, memo, expiration,
+  permissionId })` sets them locally and re-derives the txid; `signAndBroadcast` takes
+  the same options, and `triggerContract` / `deployContract` accept `feeLimit` (sun).
+- `sendTrc20({ contractAddress, to, amount, decimals?, feeLimit?, privateKey })`.
+- `signTransaction(extention, key)` (sign without broadcasting) and
+  `broadcastTransaction(signed)` — the multi-sig building blocks.
+- `TronGrpcClient.solidity(network)` and the `service: 'WalletSolidity'` option: read
+  solidified (irreversible) state. `TRON_NETWORKS[*].solidityGrpcHost`.
+- Per-call deadlines and cancellation: `timeoutMs` client option,
+  `client.withCallOptions({ timeoutMs, signal })`, and a third `request()` argument.
+- `channels` client option: spread calls over several HTTP/2 connections.
+- `BlockTransaction.pqSignatures`: post-quantum signatures were dropped when decoding
+  blocks, so a PQ-signed transaction looked unsigned.
+- `hashMessage` / `signMessage` / `verifyMessage` (and the PQ variants) accept
+  `Uint8Array` messages as well as strings.
+- `mnemonicToSeed`, `derivePrivateKey`, `base58Encode`, `base58Decode`.
+- **Typed responses.** The 94 methods that returned `Record<string, unknown>` now
+  return the node's message under its proto name: `getBlockByLatestNum` →
+  `BlockListExtention`, `getBlock` → `BlockExtention`, `getChainParameters` →
+  `ChainParameters`, `getDelegatedResourceV2` → `DelegatedResourceList`,
+  `listWitnesses` → `WitnessList`, `getTransactionInfoByBlockNum` →
+  `TransactionInfoList`, `getContract` → `SmartContract`, and the account, asset,
+  proposal, exchange, market, node and pending-pool reads likewise (README lists
+  them all). Every builder method returns `UnsignedTransactionExtention`. 74 new
+  exported types (`src/types/responses.ts`), describing the message as the client
+  returns it: proto field names, `int64` as strings, enums as names, `bytes` as
+  base58 / hex, unset sub-messages as `null`. Types only — what the methods return at
+  runtime is unchanged, and each type was checked against live mainnet responses.
+  Shielded RPCs still return `Record<string, unknown>`.
+- CI workflow (`.github/workflows/ci.yml`): `npm run verify` on Node 20/22/24 and
+  `npm audit` of runtime dependencies.
+
+### Changed
+
+- **Runtime dependencies cut from 11 to 6.** Removed:
+  - `@scure/base`, `@scure/bip32`, `@scure/bip39` — base58 and the BIP-39 seed / BIP-32
+    private derivation behind `fromMnemonic` are now implemented here on `@noble/hashes`
+    and `@noble/curves` (already dependencies). Outputs verified identical to the
+    replaced packages on 20,000 random base58 inputs and 2,600 random derivations, and
+    against the BIP-32 / BIP-39 published vectors, which are now unit tests;
+  - `google-protobuf` — only used by generated bindings (`src/proto/*.ts`) that no code
+    imported. Those are no longer generated or shipped: `dist/` shrinks from 1.6 MB to
+    about 0.45 MB. `gen-ts.sh`, `gen-proto` and the `protoc` requirement are gone;
+  - `tslib` — the few emit helpers used are inlined.
+- `dist/` is no longer minified (dropped `terser`), so the published code is readable.
+- Proto definitions are parsed on first use instead of at import: importing the package
+  takes ~48 ms instead of ~78 ms, and code that only uses the address / unit / signing
+  helpers never parses them.
+- The default 30s deadline moved from the gRPC service config to a per-call deadline
+  (so it can be changed per call). `RESOURCE_EXHAUSTED` was removed from the gRPC-level
+  retry policy: `rateLimitRetry` already handles it, and listing it twice multiplied
+  the attempts.
+- Updated `@grpc/grpc-js` 1.14.7 and dev tooling (`eslint` 10.14.0, `typescript-eslint`
+  8.72.1, `@types/node` 26.6.6). Still held back: `typescript` 7 (`typescript-eslint`
+  supports `<6.1`) and `protobufjs` 8 (`@grpc/proto-loader` requires `^7`).
+
+### Migration notes
+
+- Mainnet now uses port 443 + TLS. To keep the old endpoint, pass the host explicitly:
+  `new TronGrpcClient('grpc.trongrid.io:50051')`.
+- Code that edits `extention.transaction.raw_data` by hand must update `extention.txid`
+  too (or use `applyTransactionOptions`), otherwise signing throws.
+- Passing a float with excess precision as an amount now throws; pass a string.
+- Deep imports of `tron-grpc/dist/src/proto/*.js` (the generated classes) no longer exist.
+- `BlockTransaction` has a new required field, `pqSignatures`.
+- TypeScript only: results that were `Record<string, unknown>` are now typed. The new
+  types remain assignable to `Record<string, unknown>`, so casts such as
+  `res.witnesses as Record<string, unknown>[]` still compile; what stops compiling is
+  reading a field that does not exist, or asserting a type the field cannot have
+  (`res.num as number` — it is a string). `signTransaction` now returns the type of
+  the extention it was given.
+
 ## [2.3.1] - 2026-10-22
 
 ### Fixed

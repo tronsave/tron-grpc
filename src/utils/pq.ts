@@ -419,7 +419,7 @@ export const decodePqEnvelope = (envelope: string): PqEnvelope => {
  * Returns a hex envelope — a string, exactly like `signMessage`.
  */
 export const signMessagePQ = (
-    message: string,
+    message: string | Uint8Array,
     privateKey: string | Uint8Array,
     publicKey?: string | Uint8Array
 ): string => {
@@ -433,7 +433,7 @@ export const signMessagePQ = (
  * {@link signMessagePQ}; only the scheme byte differs.
  */
 export const signMessageMlDsa44 = (
-    message: string,
+    message: string | Uint8Array,
     privateKey: string | Uint8Array,
     publicKey?: string | Uint8Array
 ): string => {
@@ -452,7 +452,7 @@ export const signMessageMlDsa44 = (
  * their own key. Compare the returned address against the one you expect —
  * the same pattern as checking `verifyMessageV2`'s result.
  */
-export const verifyMessagePQ = (message: string, envelope: string): string => {
+export const verifyMessagePQ = (message: string | Uint8Array, envelope: string): string => {
     const { scheme, publicKey, signature } = decodePqEnvelope(envelope);
     if (scheme !== PQScheme.FN_DSA_512 && scheme !== PQScheme.ML_DSA_44) {
         throw new Error(`Unsupported PQ scheme in envelope: ${scheme}`);
@@ -471,7 +471,7 @@ export const verifyMessagePQ = (message: string, envelope: string): string => {
  * accept ECDSA and post-quantum signers through one path. As always, compare the
  * returned address against the one you expect.
  */
-export const verifySignedMessage = (message: string, signature: string): string =>
+export const verifySignedMessage = (message: string | Uint8Array, signature: string): string =>
     isPqEnvelope(signature) ? verifyMessagePQ(message, signature) : verifyMessage(message, signature);
 
 /* -------------------------------------------------------------------------- */

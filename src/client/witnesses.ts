@@ -1,12 +1,13 @@
 import { TronClientResources } from './resources';
-import { intString, type Raw } from './helpers';
+import { intString } from './helpers';
 import { toAddressBytes } from '../utils/address';
 import type { VoteInput } from '../types';
+import type { UnsignedTransactionExtention, WitnessList } from '../types/responses';
 
 /** Witness (super-representative) management + voting. */
 export class TronClientWitnesses extends TronClientResources {
     /** Create a witness (super-representative candidate) (`CreateWitness2`). */
-    async createWitness(ownerAddress: string, url: string): Promise<Raw> {
+    async createWitness(ownerAddress: string, url: string): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('CreateWitness2', {
             owner_address: toAddressBytes(ownerAddress),
             url: Buffer.from(url, 'utf8'),
@@ -14,7 +15,7 @@ export class TronClientWitnesses extends TronClientResources {
     }
 
     /** Update a witness URL (`UpdateWitness2`). */
-    async updateWitness(ownerAddress: string, url: string): Promise<Raw> {
+    async updateWitness(ownerAddress: string, url: string): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('UpdateWitness2', {
             owner_address: toAddressBytes(ownerAddress),
             update_url: Buffer.from(url, 'utf8'),
@@ -22,7 +23,7 @@ export class TronClientWitnesses extends TronClientResources {
     }
 
     /** Vote for witnesses with TRON power (`VoteWitnessAccount2`). */
-    async voteWitnessAccount(ownerAddress: string, votes: VoteInput[], support = true): Promise<Raw> {
+    async voteWitnessAccount(ownerAddress: string, votes: VoteInput[], support = true): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('VoteWitnessAccount2', {
             owner_address: toAddressBytes(ownerAddress),
             support,
@@ -34,12 +35,12 @@ export class TronClientWitnesses extends TronClientResources {
     }
 
     /** List all witnesses. */
-    async listWitnesses(): Promise<Raw> {
-        return this.query('ListWitnesses', {});
+    async listWitnesses(): Promise<WitnessList> {
+        return this.query<WitnessList>('ListWitnesses', {});
     }
 
     /** Paginated list of current witnesses. */
-    async getPaginatedNowWitnessList(offset: number, limit: number): Promise<Raw> {
-        return this.query('GetPaginatedNowWitnessList', { offset, limit });
+    async getPaginatedNowWitnessList(offset: number, limit: number): Promise<WitnessList> {
+        return this.query<WitnessList>('GetPaginatedNowWitnessList', { offset, limit });
     }
 }

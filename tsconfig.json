@@ -5,9 +5,8 @@
         "module": "commonjs",
         "moduleResolution": "node",
         "ignoreDeprecations": "6.0",
-        "importHelpers": true, /* Import emit helpers from 'tslib' */
+        "importHelpers": false, /* Inline the few emit helpers used: no runtime dependency on tslib */
         "removeComments": true, /* Remove all comments except copy-right header comments */
-        "noEmitHelpers": true, /* Use imported helpers from tslib */
         "skipLibCheck": true, /* Skip type checking of declaration files */
         /* Output Configuration */
         "outDir": "./dist",

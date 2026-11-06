@@ -6,6 +6,7 @@ import type {
     AccountResources,
     BlockSummary,
     BlockTransaction,
+    PqSignature,
     TransactionInfoResult,
     TransactionLog,
     TransactionResult,
@@ -86,6 +87,18 @@ export const decodeLogs = (v: unknown): TransactionLog[] => (Array.isArray(v) ? 
 export const decodeInternalTransactions = (v: unknown): Record<string, unknown>[] =>
     Array.isArray(v) ? (v.map(normalizeDeep) as Record<string, unknown>[]) : [];
 
+/** Decode a repeated `PQAuthSig` field (TIP-899), deriving each signer's address. */
+const decodePqSignatures = (v: unknown): PqSignature[] =>
+    (Array.isArray(v) ? (v as Raw[]) : []).map(sig => {
+        const publicKey = bytesToHexField(sig.public_key);
+        return {
+            scheme: String(sig.scheme ?? ''),
+            publicKey,
+            signature: bytesToHexField(sig.signature),
+            address: publicKey ? pqPublicKeyToAddress(publicKey) : '',
+        };
+    });
+
 /**
  * Decode one TransactionExtention from a BlockExtention into a full typed view.
  *
@@ -106,6 +119,7 @@ const decodeBlockTransaction = (v: unknown, normalized: Raw): BlockTransaction =
         contractType: contracts[0]?.type as string | undefined,
         ret: ret.map(r => String(r.contractRet ?? '')),
         signatures: signature.map(bytesToHexField),
+        pqSignatures: decodePqSignatures(tx.pq_auth_sig),
         energyUsed: toIntString(ext.energy_used),
         energyPenalty: toIntString(ext.energy_penalty),
         logs: decodeLogs(ext.logs),
@@ -332,7 +346,6 @@ export const decodeTransaction = (res: Raw, txid: string): TransactionResult => 
     const rawData = (res.raw_data ?? {}) as Raw;
     const contracts = Array.isArray(rawData.contract) ? (rawData.contract as Raw[]) : [];
     const signature = Array.isArray(res.signature) ? res.signature : [];
-    const pqAuthSig = Array.isArray(res.pq_auth_sig) ? (res.pq_auth_sig as Raw[]) : [];
     const ret = Array.isArray(res.ret) ? (res.ret as Raw[]) : [];
     const found = contracts.length > 0;
     // `rawData` is the same object as `raw.raw_data`: normalized once, not twice.
@@ -341,15 +354,7 @@ export const decodeTransaction = (res: Raw, txid: string): TransactionResult => 
         txid,
         contractType: contracts[0]?.type as string | undefined,
         signatures: signature.map(bytesToHexField),
-        pqSignatures: pqAuthSig.map(sig => {
-            const publicKey = bytesToHexField(sig.public_key);
-            return {
-                scheme: String(sig.scheme ?? ''),
-                publicKey,
-                signature: bytesToHexField(sig.signature),
-                address: publicKey ? pqPublicKeyToAddress(publicKey) : '',
-            };
-        }),
+        pqSignatures: decodePqSignatures(res.pq_auth_sig),
         ret: ret.map(r => String(r.contractRet ?? '')),
         rawData: (normalized.raw_data ?? {}) as Record<string, unknown>,
         raw: normalized,
