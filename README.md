@@ -47,6 +47,7 @@ Questions or feedback are welcome
 - [Design: why gRPC + proto-loader](#design-why-grpc--proto-loader)
 - [Implemented methods](#implemented-methods)
 - [Assumptions](#assumptions)
+- [License](#license)
 - [Changelog](CHANGELOG.md)
 
 ---
@@ -868,3 +869,12 @@ helpers (`encodeFunctionData`, `encodeAddressParam`, `encodeUint256`,
 - Live-balance cross-checks read both sources near-simultaneously and retry until
   two reads agree, to avoid a false failure if a balance moves mid-test.
 - Node 20+ is assumed for global `fetch`.
+
+## License
+
+[MIT](LICENSE) © TronSave.
+
+The `.proto` files under `src/proto/` (shipped in `dist/src/proto/`) are copied
+unmodified from [tronprotocol/protocol](https://github.com/tronprotocol/protocol) and
+stay under that project's license, LGPL-3.0; the MIT license covers this library's own
+code.
