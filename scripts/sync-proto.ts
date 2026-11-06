@@ -3,9 +3,8 @@
  * (https://github.com/tronprotocol/protocol) into this project's src/proto tree.
  *
  * The upstream protos are NOT used verbatim: this project vendors them with a few
- * deliberate transformations so they generate cleanly with ./gen-ts.sh (which runs
- * protoc with only `--proto_path ./`, i.e. no googleapis include path). This script
- * reproduces those transformations so the result stays buildable:
+ * deliberate transformations so they load with no googleapis include path. This
+ * script reproduces those transformations so the result stays loadable:
  *
  *   1. Rewrite import paths   "core/..." / "api/..."        -> "src/proto/..."
  *   2. Drop google imports    `import "google/..."`         (any.proto, api/annotations.proto)
@@ -18,7 +17,8 @@
  *   npm run sync-proto v4.7.7       # sync from a tag/branch/commit
  *   TRON_PROTO_REF=master npm run sync-proto
  *
- * After syncing, regenerate the TypeScript bindings with `./gen-ts.sh`.
+ * The .proto files are loaded at runtime (proto-loader), so there is no codegen step:
+ * after syncing, run `npm run verify` and `npm run test:live`.
  */
 
 import { mkdir, writeFile, readFile } from "node:fs/promises";
@@ -216,7 +216,7 @@ async function main() {
 
   const updated = results.filter((r) => r === "updated").length;
   console.log(`\nDone: ${updated} updated, ${results.length - updated} unchanged.`);
-  if (updated) console.log("Next: run ./gen-ts.sh to regenerate the TypeScript bindings.");
+  if (updated) console.log("Next: npm run verify && npm run test:live");
 }
 
 main().catch((err) => {

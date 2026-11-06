@@ -3,11 +3,12 @@ import { intString, sunString, type IntLike, type Raw } from './helpers';
 import { toAddressBytes } from '../utils/address';
 import type { DecimalLike } from '../utils/units';
 import type { CreateAssetIssueInput } from '../types';
+import type { AssetIssueContract, AssetIssueList, UnsignedTransactionExtention } from '../types/responses';
 
 /** TRC10 asset issuance, transfer, and queries. */
 export class TronClientAssets extends TronClientWitnesses {
     /** Issue a new TRC10 asset (`CreateAssetIssue2`). */
-    async createAssetIssue(input: CreateAssetIssueInput): Promise<Raw> {
+    async createAssetIssue(input: CreateAssetIssueInput): Promise<UnsignedTransactionExtention> {
         const contract: Raw = {
             owner_address: toAddressBytes(input.ownerAddress),
             name: Buffer.from(input.name, 'utf8'),
@@ -37,7 +38,7 @@ export class TronClientAssets extends TronClientWitnesses {
     }
 
     /** Transfer a TRC10 asset (`TransferAsset2`). `amount` is in token units. */
-    async transferAsset(ownerAddress: string, toAddress: string, assetName: string, amount: IntLike): Promise<Raw> {
+    async transferAsset(ownerAddress: string, toAddress: string, assetName: string, amount: IntLike): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('TransferAsset2', {
             owner_address: toAddressBytes(ownerAddress),
             to_address: toAddressBytes(toAddress),
@@ -47,7 +48,7 @@ export class TronClientAssets extends TronClientWitnesses {
     }
 
     /** Participate in (buy) a TRC10 asset issue (`ParticipateAssetIssue2`). `amount` is TRX. */
-    async participateAssetIssue(ownerAddress: string, toAddress: string, assetName: string, amount: DecimalLike): Promise<Raw> {
+    async participateAssetIssue(ownerAddress: string, toAddress: string, assetName: string, amount: DecimalLike): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('ParticipateAssetIssue2', {
             owner_address: toAddressBytes(ownerAddress),
             to_address: toAddressBytes(toAddress),
@@ -57,12 +58,12 @@ export class TronClientAssets extends TronClientWitnesses {
     }
 
     /** Unfreeze a frozen TRC10 asset (`UnfreezeAsset2`). */
-    async unfreezeAsset(ownerAddress: string): Promise<Raw> {
+    async unfreezeAsset(ownerAddress: string): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('UnfreezeAsset2', { owner_address: toAddressBytes(ownerAddress) });
     }
 
     /** Update a TRC10 asset's description / url / bandwidth limits (`UpdateAsset2`). */
-    async updateAsset(ownerAddress: string, description: string, url: string, newLimit: IntLike, newPublicLimit: IntLike): Promise<Raw> {
+    async updateAsset(ownerAddress: string, description: string, url: string, newLimit: IntLike, newPublicLimit: IntLike): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('UpdateAsset2', {
             owner_address: toAddressBytes(ownerAddress),
             description: Buffer.from(description, 'utf8'),
@@ -73,32 +74,32 @@ export class TronClientAssets extends TronClientWitnesses {
     }
 
     /** Get the TRC10 assets issued by an account. */
-    async getAssetIssueByAccount(address: string): Promise<Raw> {
-        return this.query('GetAssetIssueByAccount', { address: toAddressBytes(address) });
+    async getAssetIssueByAccount(address: string): Promise<AssetIssueList> {
+        return this.query<AssetIssueList>('GetAssetIssueByAccount', { address: toAddressBytes(address) });
     }
 
     /** Get a TRC10 asset by its name. */
-    async getAssetIssueByName(name: string): Promise<Raw> {
-        return this.query('GetAssetIssueByName', { value: Buffer.from(name, 'utf8') });
+    async getAssetIssueByName(name: string): Promise<AssetIssueContract> {
+        return this.query<AssetIssueContract>('GetAssetIssueByName', { value: Buffer.from(name, 'utf8') });
     }
 
     /** Get all TRC10 assets sharing a name. */
-    async getAssetIssueListByName(name: string): Promise<Raw> {
-        return this.query('GetAssetIssueListByName', { value: Buffer.from(name, 'utf8') });
+    async getAssetIssueListByName(name: string): Promise<AssetIssueList> {
+        return this.query<AssetIssueList>('GetAssetIssueListByName', { value: Buffer.from(name, 'utf8') });
     }
 
     /** Get a TRC10 asset by its numeric id. */
-    async getAssetIssueById(id: string): Promise<Raw> {
-        return this.query('GetAssetIssueById', { value: Buffer.from(id, 'utf8') });
+    async getAssetIssueById(id: string): Promise<AssetIssueContract> {
+        return this.query<AssetIssueContract>('GetAssetIssueById', { value: Buffer.from(id, 'utf8') });
     }
 
     /** List all TRC10 assets. */
-    async getAssetIssueList(): Promise<Raw> {
-        return this.query('GetAssetIssueList', {});
+    async getAssetIssueList(): Promise<AssetIssueList> {
+        return this.query<AssetIssueList>('GetAssetIssueList', {});
     }
 
     /** Paginated list of TRC10 assets. */
-    async getPaginatedAssetIssueList(offset: number, limit: number): Promise<Raw> {
-        return this.query('GetPaginatedAssetIssueList', { offset, limit });
+    async getPaginatedAssetIssueList(offset: number, limit: number): Promise<AssetIssueList> {
+        return this.query<AssetIssueList>('GetPaginatedAssetIssueList', { offset, limit });
     }
 }

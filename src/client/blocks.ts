@@ -3,6 +3,7 @@ import type { Raw } from './helpers';
 import { hexToBytesSafe } from '../utils/hex';
 import { decodeBlock } from '../codecs/decode';
 import type { BlockSummary } from '../types';
+import type { Block, BlockBalanceTrace, BlockExtention, BlockListExtention, NumberMessage } from '../types/responses';
 
 /** Block reads. */
 export class TronClientBlocks extends TronClientCore {
@@ -17,32 +18,32 @@ export class TronClientBlocks extends TronClientCore {
     }
 
     /** Get a block by its id/hash (hex). */
-    async getBlockById(blockHash: string): Promise<Raw> {
-        return this.query('GetBlockById', { value: hexToBytesSafe(blockHash) });
+    async getBlockById(blockHash: string): Promise<Block> {
+        return this.query<Block>('GetBlockById', { value: hexToBytesSafe(blockHash) });
     }
 
     /** Get the latest N blocks (`GetBlockByLatestNum2`). */
-    async getBlockByLatestNum(num: number): Promise<Raw> {
-        return this.query('GetBlockByLatestNum2', { num });
+    async getBlockByLatestNum(num: number): Promise<BlockListExtention> {
+        return this.query<BlockListExtention>('GetBlockByLatestNum2', { num });
     }
 
     /** Get a range of blocks `[startNum, endNum)` (`GetBlockByLimitNext2`). */
-    async getBlockByLimitNext(startNum: number, endNum: number): Promise<Raw> {
-        return this.query('GetBlockByLimitNext2', { startNum, endNum });
+    async getBlockByLimitNext(startNum: number, endNum: number): Promise<BlockListExtention> {
+        return this.query<BlockListExtention>('GetBlockByLimitNext2', { startNum, endNum });
     }
 
     /** Get a block by number or id, optionally with full tx detail (`GetBlock`). */
-    async getBlock(idOrNum: number | string, detail = false): Promise<Raw> {
-        return this.query('GetBlock', { id_or_num: String(idOrNum), detail });
+    async getBlock(idOrNum: number | string, detail = false): Promise<BlockExtention> {
+        return this.query<BlockExtention>('GetBlock', { id_or_num: String(idOrNum), detail });
     }
 
     /** Count transactions in a block. */
-    async getTransactionCountByBlockNum(blockNumber: number): Promise<Raw> {
-        return this.query('GetTransactionCountByBlockNum', { num: blockNumber });
+    async getTransactionCountByBlockNum(blockNumber: number): Promise<NumberMessage> {
+        return this.query<NumberMessage>('GetTransactionCountByBlockNum', { num: blockNumber });
     }
 
     /** Trace per-account balance changes in a block. */
-    async getBlockBalanceTrace(blockNumber: number, blockHash: string): Promise<Raw> {
-        return this.query('GetBlockBalanceTrace', { number: blockNumber, hash: hexToBytesSafe(blockHash) });
+    async getBlockBalanceTrace(blockNumber: number, blockHash: string): Promise<BlockBalanceTrace> {
+        return this.query<BlockBalanceTrace>('GetBlockBalanceTrace', { number: blockNumber, hash: hexToBytesSafe(blockHash) });
     }
 }

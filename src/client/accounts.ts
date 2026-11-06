@@ -4,6 +4,13 @@ import { toAddressBytes, toBase58Address } from '../utils/address';
 import { hexToBytesSafe } from '../utils/hex';
 import { decodeAccount, decodeAccountResources } from '../codecs/decode';
 import type { AccountResources, PermissionInput, TronAccount, TronAccountType } from '../types';
+import type {
+    Account,
+    AccountBalanceResponse,
+    AccountNetMessage,
+    NumberMessage,
+    UnsignedTransactionExtention,
+} from '../types/responses';
 
 /** Account reads + account-management builders. */
 export class TronClientAccounts extends TronClientBlocks {
@@ -26,35 +33,35 @@ export class TronClientAccounts extends TronClientBlocks {
     }
 
     /** Get an account by its immutable account id. */
-    async getAccountById(accountId: string): Promise<Raw> {
-        return this.query('GetAccountById', { account_id: Buffer.from(accountId, 'utf8') });
+    async getAccountById(accountId: string): Promise<Account> {
+        return this.query<Account>('GetAccountById', { account_id: Buffer.from(accountId, 'utf8') });
     }
 
     /** Get an account's bandwidth (net) usage + limits. */
-    async getAccountNet(address: string): Promise<Raw> {
-        return this.query('GetAccountNet', { address: toAddressBytes(address) });
+    async getAccountNet(address: string): Promise<AccountNetMessage> {
+        return this.query<AccountNetMessage>('GetAccountNet', { address: toAddressBytes(address) });
     }
 
     /** Get an account's TRX balance at a specific block (balance trace). */
-    async getAccountBalance(address: string, blockNumber: number, blockHash: string): Promise<Raw> {
-        return this.query('GetAccountBalance', {
+    async getAccountBalance(address: string, blockNumber: number, blockHash: string): Promise<AccountBalanceResponse> {
+        return this.query<AccountBalanceResponse>('GetAccountBalance', {
             account_identifier: { address: toAddressBytes(address) },
             block_identifier: { number: blockNumber, hash: hexToBytesSafe(blockHash) },
         });
     }
 
     /** Get unclaimed voting/SR reward (in sun) for an address. */
-    async getRewardInfo(address: string): Promise<Raw> {
-        return this.query('GetRewardInfo', { value: toAddressBytes(address) });
+    async getRewardInfo(address: string): Promise<NumberMessage> {
+        return this.query<NumberMessage>('GetRewardInfo', { value: toAddressBytes(address) });
     }
 
     /** Get an SR's brokerage ratio for an address. */
-    async getBrokerageInfo(address: string): Promise<Raw> {
-        return this.query('GetBrokerageInfo', { value: toAddressBytes(address) });
+    async getBrokerageInfo(address: string): Promise<NumberMessage> {
+        return this.query<NumberMessage>('GetBrokerageInfo', { value: toAddressBytes(address) });
     }
 
     /** Set an account's on-chain name (`UpdateAccount2`). */
-    async updateAccount(ownerAddress: string, accountName: string): Promise<Raw> {
+    async updateAccount(ownerAddress: string, accountName: string): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('UpdateAccount2', {
             owner_address: toAddressBytes(ownerAddress),
             account_name: Buffer.from(accountName, 'utf8'),
@@ -62,7 +69,7 @@ export class TronClientAccounts extends TronClientBlocks {
     }
 
     /** Set an account's immutable id (`SetAccountId`). */
-    async setAccountId(ownerAddress: string, accountId: string): Promise<Raw> {
+    async setAccountId(ownerAddress: string, accountId: string): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('SetAccountId', {
             owner_address: toAddressBytes(ownerAddress),
             account_id: Buffer.from(accountId, 'utf8'),
@@ -74,7 +81,7 @@ export class TronClientAccounts extends TronClientBlocks {
         ownerAddress: string,
         accountAddress: string,
         type: TronAccountType = 'Normal'
-    ): Promise<Raw> {
+    ): Promise<UnsignedTransactionExtention> {
         return this.buildExtention('CreateAccount2', {
             owner_address: toAddressBytes(ownerAddress),
             account_address: toAddressBytes(accountAddress),
@@ -88,7 +95,7 @@ export class TronClientAccounts extends TronClientBlocks {
         owner: PermissionInput,
         actives: PermissionInput[],
         witness?: PermissionInput
-    ): Promise<Raw> {
+    ): Promise<UnsignedTransactionExtention> {
         const toPermission = (p: PermissionInput, fallbackId: number): Raw => ({
             type: p.type ?? 'Active',
             id: p.id ?? fallbackId,

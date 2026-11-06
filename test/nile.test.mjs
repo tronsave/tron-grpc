@@ -90,6 +90,36 @@ test('ECDSA: transfer is accepted, confirmed, and verifies on-chain', { skip }, 
     falcon = key;
 });
 
+test('local edits: memo, expiration and a fee limit set after the node built the tx are accepted', { skip }, async (t) => {
+    if (needs(t, 60)) return;
+    // Memo + expiry on a transfer: raw_data is edited locally and the txid re-derived.
+    const expiration = Date.now() + 10 * 60_000;
+    const sent = await client.sendTrx({ privateKey, to: lib.privateKeyToAddress('33'.repeat(32)), amount: '0.000001', memo: 'tron-grpc nile', expiration });
+    assert.equal(sent.success, true, `transfer with memo rejected: ${sent.code} ${sent.message}`);
+    await confirm(sent.txid);
+    await assertOnChain(sent.txid, [['ECDSA', me]]);
+    const tx = await client.request('GetTransactionById', { value: lib.hexToBytesSafe(sent.txid) });
+    assert.equal(Buffer.from(tx.raw_data.data).toString(), 'tron-grpc nile');
+    assert.equal(String(tx.raw_data.expiration), String(expiration));
+
+    // A contract call with a fee limit: approve(spender, 0) on Nile USDT moves nothing.
+    const USDT_NILE = 'TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf';
+    const ext = await client.triggerContract({
+        ownerAddress: me,
+        contractAddress: USDT_NILE,
+        functionSelector: 'approve(address,uint256)',
+        params: lib.encodeAddressParam(me) + lib.encodeUint256(0),
+        feeLimit: 50_000_000,
+    });
+    const called = await client.signAndBroadcast(ext, privateKey);
+    assert.equal(called.success, true, `contract call rejected: ${called.code} ${called.message}`);
+    const info = await confirm(called.txid);
+    assert.notEqual(info.result, 'FAILED', `contract call failed: ${info.resMessage}`);
+    await assertOnChain(called.txid, [['ECDSA', me]]);
+    const callTx = await client.request('GetTransactionById', { value: lib.hexToBytesSafe(called.txid) });
+    assert.equal(String(callTx.raw_data.fee_limit), '50000000');
+});
+
 test('FN-DSA-512: a post-quantum signed transfer is accepted and verifies on-chain', { skip }, async (t) => {
     if (needs(t, 15)) return;
     const caps = await client.getPqCapabilities();

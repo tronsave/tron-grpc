@@ -48,7 +48,7 @@ export interface Signer {
      * Sign a plain-text message.
      * ECDSA returns a hex signature; PQ schemes return a hex PQ envelope.
      */
-    signMessage(message: string): string;
+    signMessage(message: string | Uint8Array): string;
     /**
      * Attach a signature for `txid` (SHA-256 of `raw_data`, hex) to `transaction`,
      * writing whichever signature field the algorithm uses. Returns the same object.
@@ -65,7 +65,7 @@ export class EcdsaSigner implements Signer {
         this.address = privateKeyToAddress(privateKey);
     }
 
-    signMessage(message: string): string {
+    signMessage(message: string | Uint8Array): string {
         return signMessage(message, this.privateKey);
     }
 
@@ -88,7 +88,7 @@ export class FalconSigner implements Signer {
         this.address = falconPublicKeyToAddress(this.publicKey);
     }
 
-    signMessage(message: string): string {
+    signMessage(message: string | Uint8Array): string {
         return signMessagePQ(message, this.privateKey, this.publicKey);
     }
 
@@ -118,7 +118,7 @@ export class MlDsa44Signer implements Signer {
         this.address = mlDsa44PublicKeyToAddress(this.publicKey);
     }
 
-    signMessage(message: string): string {
+    signMessage(message: string | Uint8Array): string {
         return signMessageMlDsa44(message, this.privateKey, this.publicKey);
     }
 

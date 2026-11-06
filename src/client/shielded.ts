@@ -11,12 +11,13 @@ import { hexToBytesSafe } from '../utils/hex';
 export class TronClientShielded extends TronClientChain {
     /** Build a shielded transaction (`CreateShieldedTransaction`). */
     async createShieldedTransaction(params: Raw): Promise<Raw> {
-        return this.buildExtention('CreateShieldedTransaction', params);
+        // The request (PrivateParameters) is not the contract: nothing to compare against.
+        return this.buildExtention('CreateShieldedTransaction', params, { verify: false });
     }
 
     /** Build a shielded transaction without spend-auth signature. */
     async createShieldedTransactionWithoutSpendAuthSig(params: Raw): Promise<Raw> {
-        return this.buildExtention('CreateShieldedTransactionWithoutSpendAuthSig', params);
+        return this.buildExtention('CreateShieldedTransactionWithoutSpendAuthSig', params, { verify: false });
     }
 
     /** Get the incremental Merkle voucher info for output points. */

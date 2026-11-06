@@ -14,6 +14,19 @@ export type DecimalLike = number | string | bigint;
 const isHugeFloat = (value: number): boolean =>
     !Number.isFinite(value) || Math.abs(value) >= 1e21;
 
+/** `String(value)` with any exponent (`1e-7`) expanded into plain decimal digits. */
+const plainDecimal = (value: number): string => {
+    const text = String(value);
+    const match = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/.exec(text);
+    if (!match) return text;
+    const [, sign, int, frac = '', exp] = match;
+    const digits = int + frac;
+    const point = int.length + Number(exp);
+    if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`;
+    if (point >= digits.length) return `${sign}${digits}${'0'.repeat(point - digits.length)}`;
+    return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+};
+
 /**
  * Parse a decimal string/number/bigint into an integer base-unit BigInt for a
  * token with `decimals` decimals. Rejects malformed input and excess precision
@@ -28,8 +41,10 @@ export const toBaseUnits = (value: DecimalLike, decimals: number = TRX_DECIMALS)
     let text: string;
     if (typeof value === 'number') {
         if (isHugeFloat(value)) throw new Error(`Amount out of safe range: ${value}`);
-        // toFixed keeps full precision for in-range values without exponent form.
-        text = value.toFixed(decimals);
+        // The shortest decimal that round-trips to this float — what the caller
+        // wrote. (`toFixed` would round 0.1234567 to 6 places, and pad 0.1 at 18
+        // decimals with the float's binary noise: 0.100000000000000006.)
+        text = plainDecimal(value);
     } else {
         text = value.trim();
     }

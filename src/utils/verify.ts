@@ -17,7 +17,7 @@
  */
 import { sha256 } from '@noble/hashes/sha2.js';
 import * as protobuf from 'protobufjs';
-import { TransactionRawType } from '../protoLoader';
+import { getTransactionRawType } from '../protoLoader';
 import { bytesToHex, stripHexPrefix, hexToBytesSafe } from './hex';
 import { recoverAddress } from './crypto';
 import {
@@ -118,8 +118,8 @@ const pruneDefaults = (type: protobuf.Type, obj: Record<string, unknown>): Recor
  * reproduce the id of real mainnet and Nile transactions byte-for-byte.
  */
 export const computeTxid = (rawData: Record<string, unknown>): string => {
-    const pruned = pruneDefaults(TransactionRawType, rawData);
-    const bytes = TransactionRawType.encode(TransactionRawType.fromObject(pruned)).finish();
+    const type = getTransactionRawType();
+    const bytes = type.encode(type.fromObject(pruneDefaults(type, rawData))).finish();
     return bytesToHex(sha256(bytes));
 };
 

@@ -1,7 +1,6 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { keccak_256 as keccak256 } from '@noble/hashes/sha3.js';
-import * as bip39 from '@scure/bip39';
-import { HDKey } from '@scure/bip32';
+import { derivePrivateKey, mnemonicToSeed } from './hd';
 import { bytesToHex, hexToBytesSafe, stripHexPrefix } from './hex';
 import { bytesToBase58Address, TRON_ADDRESS_PREFIX } from './address';
 
@@ -52,11 +51,14 @@ export const signDigest = (digest: Uint8Array, privateKey: string): string => {
 };
 
 /**
- * Digest a plain-text message under the TRON personal-message scheme:
+ * Digest a message under the TRON personal-message scheme:
  * keccak256(prefix || len(message) || message). Matches tronweb `signMessageV2`.
+ *
+ * A string is hashed as its UTF-8 bytes; a `Uint8Array` is hashed as-is, for
+ * binary payloads (as tronweb does for byte input).
  */
-export const hashMessage = (message: string): Uint8Array => {
-    const messageBytes = utf8(message);
+export const hashMessage = (message: string | Uint8Array): Uint8Array => {
+    const messageBytes = typeof message === 'string' ? utf8(message) : message;
     const prefixBytes = utf8(TRON_MESSAGE_PREFIX);
     const lengthBytes = utf8(String(messageBytes.length));
 
@@ -72,7 +74,7 @@ export const hashMessage = (message: string): Uint8Array => {
  * Sign a plain-text message using the TRON personal-message scheme.
  * Matches tronweb `signMessageV2`.
  */
-export const signMessage = (message: string, privateKey: string): string =>
+export const signMessage = (message: string | Uint8Array, privateKey: string): string =>
     signDigest(hashMessage(message), privateKey);
 
 /** Sign a transaction id (the SHA256 digest of raw_data, given as hex). */
@@ -112,7 +114,7 @@ export const recoverAddress = (digest: Uint8Array, signature: string): string =>
  * message was signed by whoever owns the returned address — compare it against
  * the address you expect.
  */
-export const verifyMessage = (message: string, signature: string): string =>
+export const verifyMessage = (message: string | Uint8Array, signature: string): string =>
     recoverAddress(hashMessage(message), signature);
 
 /** Verify a signature over a transaction id (hex) and return the signer's address. */
@@ -131,9 +133,10 @@ export const fromMnemonic = (
     path: string = "m/44'/195'/0'/0/0",
     password?: string
 ): { privateKey: string; address: string } => {
-    const seed = bip39.mnemonicToSeedSync(mnemonic, password);
-    const hdkey = HDKey.fromMasterSeed(seed).derive(path);
-    if (!hdkey.privateKey) throw new Error('Could not derive private key from mnemonic/path');
-    const privateKey = bytesToHex(hdkey.privateKey);
+    const seed = mnemonicToSeed(mnemonic, password);
+    const key = derivePrivateKey(seed, path);
+    seed.fill(0);
+    const privateKey = bytesToHex(key);
+    key.fill(0);
     return { privateKey, address: privateKeyToAddress(privateKey) };
 };

@@ -1,4 +1,4 @@
-import { base58 } from '@scure/base';
+import { base58Decode, base58Encode } from './base58';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytesSafe, stripHexPrefix } from './hex';
 
@@ -27,7 +27,7 @@ const hasValidChecksum = (body: Uint8Array, checksum: Uint8Array): boolean => {
  * a different (unowned) address that funds could be sent to.
  */
 export const base58ToBytes = (address: string): Uint8Array => {
-    const decoded = base58.decode(address);
+    const decoded = base58Decode(address);
     if (decoded.length !== 25 || decoded[0] !== TRON_ADDRESS_PREFIX) {
         throw new Error(`Invalid TRON address: ${address}`);
     }
@@ -47,7 +47,7 @@ export const bytesToBase58Address = (bytes: Uint8Array): string => {
     const buf = new Uint8Array(bytes.length + 4);
     buf.set(bytes, 0);
     buf.set(checksum, bytes.length);
-    return base58.encode(buf);
+    return base58Encode(buf);
 };
 
 /**
@@ -74,7 +74,12 @@ export const isAddress = (address: unknown): address is string => {
  * This is the single funnel the client uses so callers never deal with bytes.
  */
 export const toAddressBytes = (address: string | Uint8Array): Uint8Array => {
-    if (address instanceof Uint8Array) return address;
+    if (address instanceof Uint8Array) {
+        if (address.length !== 21 || address[0] !== TRON_ADDRESS_PREFIX) {
+            throw new Error(`Invalid raw address: expected 21 bytes starting with 0x41, got ${address.length} bytes`);
+        }
+        return address;
+    }
     if (BASE58_RE.test(address)) return base58ToBytes(address);
 
     const hex = stripHexPrefix(address).toLowerCase();

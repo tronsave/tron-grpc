@@ -5,7 +5,7 @@
  * address / unit / crypto / ABI utilities.
  */
 export { TronGrpcClient } from './client';
-export type { TronClientOptions } from './client';
+export type { CallOptions, TronClientOptions, TronService, TronSolidityClient } from './client';
 export type { LogLevel, Logger } from './logger';
 
 export { TRON_NETWORKS } from './network';
@@ -20,16 +20,19 @@ export type {
     CreateAssetIssueInput,
     DeployContractInput,
     EstimateEnergyResult,
+    ExternalSigner,
     KeyInput,
     KeyType,
     PermissionInput,
     PqSignature,
     ReturnResult,
+    SendTrc20Params,
     SendTrxParams,
     SigningKey,
     TronPqKey,
     TransactionInfoResult,
     TransactionLog,
+    TransactionOptions,
     TransactionResult,
     Trc20Balance,
     TriggerContractInput,
@@ -45,6 +48,84 @@ export type {
     TronUnfrozenV2,
     VoteInput,
 } from './types';
+
+// Response shapes of the read / builder methods (proto messages, normalized)
+export type {
+    Account,
+    AccountBalanceResponse,
+    AccountFrozen,
+    AccountNetMessage,
+    AccountResourceDetail,
+    AccountVote,
+    AssetIssueContract,
+    AssetIssueList,
+    Block,
+    BlockBalanceTrace,
+    BlockExtention,
+    BlockHeader,
+    BlockHeaderRawData,
+    BlockIdentifier,
+    BlockListExtention,
+    CanDelegatedMaxSizeResponseMessage,
+    CanWithdrawUnfreezeAmountResponseMessage,
+    ChainParameter,
+    ChainParameters,
+    ContractParameter,
+    ContractResult,
+    ContractState,
+    ContractType,
+    DelegatedResource,
+    DelegatedResourceAccountIndex,
+    DelegatedResourceList,
+    EventLog,
+    Exchange,
+    ExchangeList,
+    GetAvailableUnfreezeCountResponseMessage,
+    InternalTransaction,
+    MarketOrder,
+    MarketOrderDetail,
+    MarketOrderList,
+    MarketOrderPairList,
+    MarketPrice,
+    MarketPriceList,
+    NodeConfigInfo,
+    NodeInfo,
+    NodeList,
+    NodeMachineInfo,
+    NodePeerInfo,
+    NodeReturn,
+    NumberMessage,
+    Permission,
+    PermissionKey,
+    PermissionType,
+    PqAuthSig,
+    PqSchemeName,
+    PricesResponseMessage,
+    Proposal,
+    ProposalList,
+    ResourceReceipt,
+    ReturnCode,
+    SmartContract,
+    SmartContractAbiEntry,
+    SmartContractAbiParam,
+    SmartContractDataWrapper,
+    Transaction,
+    TransactionApprovedList,
+    TransactionAuthority,
+    TransactionBalanceTrace,
+    TransactionContract,
+    TransactionExtention,
+    TransactionIdList,
+    TransactionInfo,
+    TransactionInfoList,
+    TransactionRawData,
+    TransactionResultCode,
+    TransactionRet,
+    TransactionSignWeight,
+    UnsignedTransactionExtention,
+    Witness,
+    WitnessList,
+} from './types/responses';
 
 // Address utilities
 export {
@@ -86,8 +167,13 @@ export {
     TRON_MESSAGE_PREFIX,
 } from './utils/crypto';
 
+// HD wallet primitives (BIP-39 seed, BIP-32 private derivation) and base58
+export { derivePrivateKey, mnemonicToSeed } from './utils/hd';
+export { base58Decode, base58Encode } from './utils/base58';
+
 // Transaction verification (ECDSA + post-quantum, auto-dispatched)
 export { computeTxid, verifyTransaction } from './utils/verify';
+export { applyTransactionOptions, assertBuiltTransaction, checkedTxid } from './utils/transaction';
 export type { TransactionSigner, TransactionVerification } from './utils/verify';
 
 // Post-quantum signatures (TIP-899: FN-DSA-512 / Falcon-512, ML-DSA-44)

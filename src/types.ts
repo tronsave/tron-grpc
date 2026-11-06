@@ -33,6 +33,45 @@ export interface TronPqKey {
  */
 export type SigningKey = string | TronPqKey;
 
+/**
+ * A signer that keeps its key out of this process — a KMS, an HSM, a hardware
+ * wallet, a remote signing service. Accepted wherever a {@link SigningKey} is.
+ *
+ * `signTransaction` receives the transaction and the locally computed txid (hex)
+ * and must append its signature: 65-byte `r‖s‖v` bytes to `transaction.signature`
+ * for ECDSA, or a `{ scheme, public_key, signature }` entry to
+ * `transaction.pq_auth_sig` for a TIP-899 scheme. It may be async. The client then
+ * verifies that a valid signature by `address` is present before broadcasting.
+ *
+ * The built-in `EcdsaSigner` / `FalconSigner` / `MlDsa44Signer` already satisfy this.
+ */
+export interface ExternalSigner {
+    /** Which algorithm the signer implements. */
+    readonly keyType: KeyType;
+    /** Base58 "T..." address of the signing key. */
+    readonly address: string;
+    signTransaction<T extends Record<string, unknown>>(transaction: T, txid: string): T | Promise<T>;
+}
+
+/**
+ * Transaction fields the gRPC builder RPCs have no parameter for. Applied locally
+ * after the node builds the transaction; the txid is re-derived.
+ */
+export interface TransactionOptions {
+    /**
+     * Most TRX the transaction may burn for energy, in **sun** (`100_000_000` = 100 TRX).
+     * Omitted, a contract call keeps the node's `fee_limit = 0` and succeeds only on
+     * staked or rented energy.
+     */
+    feeLimit?: number | string | bigint;
+    /** Memo stored in `raw_data.data` (UTF-8 string or raw bytes). Charged the chain's memo fee. */
+    memo?: string | Uint8Array;
+    /** When the transaction expires: ms epoch or `Date`. Nodes default to ~60s and accept up to 24h. */
+    expiration?: number | Date;
+    /** Account permission that signs: 0 owner (default), 1 witness, 2+ active. */
+    permissionId?: number;
+}
+
 /** Account category for `createAccount`. */
 export type TronAccountType = 'Normal' | 'AssetIssue' | 'Contract';
 
@@ -120,6 +159,11 @@ export interface DeployContractInput {
     tokenId?: number;
     /** TRC10 token amount sent on construction. */
     callTokenValue?: number | bigint;
+    /**
+     * Most TRX the deployment may burn for energy, in **sun**. Omitted, the node's
+     * `fee_limit = 0` stands and the deployment succeeds only on staked or rented energy.
+     */
+    feeLimit?: number | string | bigint;
 }
 
 /** A header summary of a block, fully decoded into readable values. */
@@ -151,8 +195,10 @@ export interface BlockTransaction {
     contractType?: string;
     /** Execution result codes (contractRet, e.g. `SUCCESS`). */
     ret: string[];
-    /** Signatures (hex). */
+    /** ECDSA signatures (hex). */
     signatures: string[];
+    /** Post-quantum signatures (TIP-899 `pq_auth_sig`). Empty for ECDSA-only transactions. */
+    pqSignatures: PqSignature[];
     /** Energy used by this transaction, as an exact integer string. */
     energyUsed: string;
     /** Energy penalty applied to this transaction, as an exact integer string. */
@@ -545,8 +591,48 @@ export interface SendTrxParams {
     to: string;
     /** Amount in TRX (decimal). Accepts number | string | bigint. */
     amount: DecimalLike;
-    /** Sender key: an ECDSA private key (hex), or a post-quantum {@link TronPqKey}. */
-    privateKey: SigningKey;
+    /**
+     * Sender key: an ECDSA private key (hex), a post-quantum {@link TronPqKey}, or an
+     * {@link ExternalSigner} that keeps the key elsewhere (KMS, HSM, hardware wallet).
+     */
+    privateKey: SigningKey | ExternalSigner;
+    /** Optional memo (charged the chain's memo fee). */
+    memo?: string | Uint8Array;
+    /** Optional expiry (ms epoch or `Date`); nodes default to ~60s. */
+    expiration?: number | Date;
+    /** Account permission that signs: 0 owner (default), 2+ active. */
+    permissionId?: number;
+}
+
+/** Friendly input for {@link TronGrpcClient.sendTrc20}. */
+export interface SendTrc20Params {
+    /** TRC20 contract address (base58 or hex). */
+    contractAddress: string;
+    /** Sender address (base58 or hex). Optional — derived from `privateKey`. */
+    from?: string;
+    /** Recipient address (base58 or hex). */
+    to: string;
+    /**
+     * Amount to send. With `decimals`, a decimal token amount (`'12.5'`); without,
+     * an integer in the token's base units.
+     */
+    amount: DecimalLike;
+    /** Token decimals. When set, `amount` is a decimal amount scaled by it. */
+    decimals?: number;
+    /** Sender key: ECDSA private key (hex), {@link TronPqKey}, or {@link ExternalSigner}. */
+    privateKey: SigningKey | ExternalSigner;
+    /**
+     * Most TRX to burn for energy, in **sun**. Omitted, the transfer burns no TRX
+     * and fails with `OUT_OF_ENERGY` unless the sender has enough staked or rented
+     * energy.
+     */
+    feeLimit?: number | string | bigint;
+    /** Optional memo (charged the chain's memo fee). */
+    memo?: string | Uint8Array;
+    /** Optional expiry (ms epoch or `Date`); nodes default to ~60s. */
+    expiration?: number | Date;
+    /** Account permission that signs: 0 owner (default), 2+ active. */
+    permissionId?: number;
 }
 
 /**
@@ -569,4 +655,10 @@ export interface TriggerContractInput {
     callTokenValue?: number | bigint;
     /** TRC10 token id to send with the call. */
     tokenId?: number;
+    /**
+     * `triggerContract` only: most TRX the call may burn for energy, in **sun**.
+     * Omitted, the node's `fee_limit = 0` stands and the call succeeds only on
+     * staked or rented energy.
+     */
+    feeLimit?: number | string | bigint;
 }
