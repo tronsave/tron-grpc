@@ -2,6 +2,7 @@
   "name": "tron-grpc",
   "version": "3.0.0",
   "description": "A TypeScript client for interacting with the TRON blockchain via gRPC",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tronsave/tron-grpc.git"
