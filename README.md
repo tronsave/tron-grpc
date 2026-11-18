@@ -106,7 +106,7 @@ const client = TronGrpcClient.fromNetwork('mainnet'); // 'mainnet' | 'nile' | 's
 // or
 const client = new TronGrpcClient('grpc.trongrid.io:443', {
   headers: { 'TRON-PRO-API-KEY': '…' },              // added to every call's metadata
-  grpcOptions: { 'grpc.keepalive_time_ms': 30000 },  // merged over tuned defaults
+  grpcOptions: { 'grpc.max_receive_message_length': 128 * 1024 * 1024 }, // merged over tuned defaults
   rateLimitRetry: { maxRetries: 5, baseDelayMs: 500 }, // default; `false` disables
   timeoutMs: 30000,                                  // default deadline per call
   channels: 1,                                       // HTTP/2 connections to spread calls over

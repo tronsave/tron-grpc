@@ -295,6 +295,13 @@ test('client: concurrent PQ capability checks share one GetChainParameters call'
     stub.client.close();
 });
 
+test('client: keepalive defaults stay within java-tron ping policy', () => {
+    const opts = lib.TronGrpcClient.DEFAULT_OPTIONS;
+    // grpc-java default permitKeepAliveTime is 5 minutes; idle pings are allowed once per 2 hours.
+    assert.ok(opts['grpc.keepalive_time_ms'] > 5 * 60 * 1000);
+    assert.equal(opts['grpc.keepalive_permit_without_calls'], 0);
+});
+
 test('client: headers do not replace interceptors passed in grpcOptions', async () => {
     let userInterceptorRan = false;
     const client = new lib.TronGrpcClient('127.0.0.1:1', {
