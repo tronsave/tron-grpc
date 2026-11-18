@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Keepalive defaults no longer break the connection to java-tron nodes. The client pinged
+  every 20 s, even with no call in flight, while java-tron allows one ping per 5 minutes
+  during calls and one per 2 hours when idle. java-tron answered with GOAWAY
+  `too_many_pings`, dropped the connection, and grpc-js logged
+  `rejected by server because of excess pings` while doubling the interval. Defaults are now
+  `grpc.keepalive_time_ms: 330000` and `grpc.keepalive_permit_without_calls: 0`.
+  Set them back through `grpcOptions` if your server allows faster pings.
+
 ## [3.0.2] - 2026-11-15
 
 No code changes.

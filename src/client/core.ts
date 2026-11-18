@@ -160,9 +160,14 @@ export class TronClientCore {
     protected readonly log: Logger;
 
     private static readonly DEFAULT_OPTIONS: grpc.ClientOptions = {
-        'grpc.keepalive_time_ms': 20000,
+        // java-tron's gRPC server keeps grpc-java's keepalive policy: at most one ping
+        // per 5 minutes while calls are active, one per 2 hours while idle. A client
+        // that pings faster is sent GOAWAY "too_many_pings", the connection is dropped
+        // and grpc-js logs "rejected by server because of excess pings". So: ping only
+        // during active calls, and no more often than every 5.5 minutes.
+        'grpc.keepalive_time_ms': 330000,
         'grpc.keepalive_timeout_ms': 10000,
-        'grpc.keepalive_permit_without_calls': 1,
+        'grpc.keepalive_permit_without_calls': 0,
         'grpc.http2.max_pings_without_data': 0,
         'grpc.initial_reconnect_backoff_ms': 100,
         'grpc.max_reconnect_backoff_ms': 10000,
